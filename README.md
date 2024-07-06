@@ -1,3 +1,6 @@
 # music-transcription
-- Clone the omnizart [gitub repository](https://github.com/Music-and-Culture-Technology-Lab/omnizart)
-- Clone the alphatab [github repository](https://github.com/CoderLine/alphaTab)
+MAESTRO dataset for piano transcription [https://magenta.tensorflow.org/datasets/maestro](https://magenta.tensorflow.org/datasets/maestro)
+
+t5-small model architecture: https://huggingface.co/transformers/v4.8.2/model_doc/t5.html
+
+Alphatab [github repository](https://github.com/CoderLine/alphaTab) for tab visualization
