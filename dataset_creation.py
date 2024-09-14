@@ -17,6 +17,7 @@ def parse_cla() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("-midi_dir", type=Path)
     parser.add_argument("-audio_dir", type=Path)
+    parser.add_argument("-sr", type=int)
     return parser.parse_args()
 
 
@@ -110,7 +111,7 @@ def norm_midi_pitch(midi_pitches):
     return midi_pitches / 127
 
 
-def create_tensor(debug_vis: bool, audio_path: str, midi_path: str) -> torch.tensor:
+def create_tensor(debug_vis: bool, audio_path: str, midi_path: str, sr: int) -> torch.tensor:
     """
     creates a tensor from an audio and midi file
 
@@ -119,7 +120,7 @@ def create_tensor(debug_vis: bool, audio_path: str, midi_path: str) -> torch.ten
     audio_path -- path to the .wav file
     midi_path  -- path to the .midi file
     """
-    audio = load_wav(audio_path, sr=16000)
+    audio = load_wav(audio_path, sr=sr)
 
     midi = pretty_midi.PrettyMIDI(midi_path)
     piano_roll = midi.get_piano_roll(fs=int(1/0.01))
@@ -142,7 +143,7 @@ def create_tensor(debug_vis: bool, audio_path: str, midi_path: str) -> torch.ten
         plt.show()
 
 
-def convert_dataset(audio_dir: Path, midi_dir: Path) -> None:
+def convert_dataset(audio_dir: Path, midi_dir: Path, sr: int) -> None:
     """
     converts dataset of .wav and .midi files to tensors
     """
@@ -151,13 +152,14 @@ def convert_dataset(audio_dir: Path, midi_dir: Path) -> None:
         create_tensor(
             debug_vis=False,
             audio_path=audio_path,
-            midi_path=matching_midi_path
+            midi_path=matching_midi_path,
+            sr=sr
             )
 
 
 def main():
     args = parse_cla()
-    convert_dataset(audio_dir=args.audio_dir, midi_dir=args.midi_dir)
+    convert_dataset(audio_dir=args.audio_dir, midi_dir=args.midi_dir, sr=args.sr)
 
 
 if __name__ == "__main__":
