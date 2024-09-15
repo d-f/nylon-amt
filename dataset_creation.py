@@ -111,7 +111,12 @@ def norm_midi_pitch(midi_pitches):
     return midi_pitches / 127
 
 
-def create_tensor(debug_vis: bool, audio_path: str, midi_path: str, sr: int) -> torch.tensor:
+def create_tensor(
+        debug_vis: bool, 
+        audio_path: str, 
+        midi_path: str, 
+        sr: int
+        ) -> torch.tensor:
     """
     creates a tensor from an audio and midi file
 
@@ -128,7 +133,7 @@ def create_tensor(debug_vis: bool, audio_path: str, midi_path: str, sr: int) -> 
     if debug_vis:
         plot_audio(audio=audio)
 
-    mel_spectrogram = audio_to_mel(audio=audio, sr=16000, n_mels=40)
+    mel_spectrogram = audio_to_mel(audio=audio, sr=sr, n_mels=40)
     mel_spectrogram_db = convert_to_DB(
         mel_spectrogram=mel_spectrogram,
         multiplier=10, 
