@@ -15,8 +15,9 @@ def parse_cla() -> None:
     parses command line arguments
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument("-midi_dir", type=Path)
-    parser.add_argument("-audio_dir", type=Path)
+    # folder that contains a folder for every competition year with midi and wav mixed within the same folder
+    parser.add_argument("-maestro_dir", type=Path)
+    # sample rate to load audio
     parser.add_argument("-sr", type=int)
     return parser.parse_args()
 
@@ -125,7 +126,7 @@ def create_tensor(
     audio_path -- path to the .wav file
     midi_path  -- path to the .midi file
     """
-    audio = load_wav(audio_path, sr=sr)
+    audio = load_wav(audio_path, sample_rate=sr)
 
     midi = pretty_midi.PrettyMIDI(midi_path)
     piano_roll = midi.get_piano_roll(fs=int(1/0.01))
@@ -148,12 +149,13 @@ def create_tensor(
         plt.show()
 
 
-def convert_dataset(audio_dir: Path, midi_dir: Path, sr: int) -> None:
+def convert_folder(audio_midi_dir: Path, sr: int) -> None:
     """
-    converts dataset of .wav and .midi files to tensors
+    converts competition year folder of .wav and .midi files to tensors
     """
-    for audio_path in audio_dir.iterdir():
-        matching_midi_path = midi_dir.glob(f"*{audio_path.name}.midi")[0]
+    audio_list = [x for x in audio_midi_dir.iterdir() if ".wav" in x.name]
+    for audio_path in audio_list:
+        matching_midi_path = [x for x in audio_midi_dir.glob(f"*{audio_path.stem}.midi")][0]
         create_tensor(
             debug_vis=False,
             audio_path=audio_path,
@@ -164,7 +166,9 @@ def convert_dataset(audio_dir: Path, midi_dir: Path, sr: int) -> None:
 
 def main():
     args = parse_cla()
-    convert_dataset(audio_dir=args.audio_dir, midi_dir=args.midi_dir, sr=args.sr)
+    for year_folder in args.maestro_dir.iterdir():
+        if year_folder.is_dir():
+            convert_folder(audio_midi_dir=args.maestro_dir.joinpath(year_folder), sr=args.sr)
 
 
 if __name__ == "__main__":
