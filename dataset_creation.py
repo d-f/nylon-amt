@@ -18,7 +18,8 @@ def parse_cla() -> None:
     # folder that contains a folder for every competition year with midi and wav mixed within the same folder
     parser.add_argument("-maestro_dir", type=Path)
     # sample rate to load audio
-    parser.add_argument("-sr", type=int)
+    parser.add_argument("-sr", type=int, default=16000)
+    parser.add_argument("-chunk_len", type=int, default=10000) # in milliseconds
     return parser.parse_args()
 
 
@@ -112,11 +113,40 @@ def norm_midi_pitch(midi_pitches):
     return midi_pitches / 127
 
 
+def extract_chunk(
+        piano_roll: np.array, 
+        norm_db: np.array, 
+        start: int, 
+        stop: int, 
+        song_len: int
+        ) -> np.array:
+    """
+    for a given time duration, this function extracts an equal amount from the
+    piano roll and spectrogram vector, taking into account the different
+    frame rates of the two vectors
+    """
+    pr_frames = piano_roll.shape[1]
+    sg_frames = norm_db.shape[1]
+
+    pr_rate = pr_frames / song_len
+    sg_rate = sg_frames / song_len
+
+    start_pr = int(start * pr_rate)
+    end_pr = int(stop * pr_rate)
+
+    start_sg = int(start * sg_rate)
+    end_sg = int(stop * sg_rate)
+
+    pr_chunk = piano_roll[:, start_pr:end_pr]
+    sg_chunk = norm_db[:, start_sg:end_sg]
+
+
 def create_tensor(
         debug_vis: bool, 
         audio_path: str, 
         midi_path: str, 
-        sr: int
+        sr: int,
+        chunk_len: int,
         ) -> torch.tensor:
     """
     creates a tensor from an audio and midi file
@@ -126,10 +156,10 @@ def create_tensor(
     audio_path -- path to the .wav file
     midi_path  -- path to the .midi file
     """
-    audio = load_wav(audio_path, sample_rate=sr)
-
-    midi = pretty_midi.PrettyMIDI(midi_path)
-    piano_roll = midi.get_piano_roll(fs=int(1/0.01))
+    audio, _ = load_wav(audio_path, sample_rate=sr)
+    song_len = len(audio)*1000 # in ms
+    midi = pretty_midi.PrettyMIDI(str(midi_path))
+    piano_roll = midi.get_piano_roll(fs=100)
 
     if debug_vis:
         plot_audio(audio=audio)
@@ -143,13 +173,23 @@ def create_tensor(
         top_db=80.0
         )
     norm_db = norm_sg(mel_spectrogram_db)
-    
+
+    for second in range(1, song_len, chunk_len):
+        chunk_tensor = extract_chunk(
+            piano_roll=piano_roll,
+            norm_db=norm_db,
+            start=second,
+            stop=second+chunk_len,
+            song_len=song_len
+        )
+
+
     if debug_vis:
         plot_spectrogram(mel_spectrogram_db.squeeze(0))
         plt.show()
 
 
-def convert_folder(audio_midi_dir: Path, sr: int) -> None:
+def convert_folder(audio_midi_dir: Path, sr: int, chunk_len: int) -> None:
     """
     converts competition year folder of .wav and .midi files to tensors
     """
@@ -160,7 +200,8 @@ def convert_folder(audio_midi_dir: Path, sr: int) -> None:
             debug_vis=False,
             audio_path=audio_path,
             midi_path=matching_midi_path,
-            sr=sr
+            sr=sr,
+            chunk_len=chunk_len, # in seconds
             )
 
 
@@ -168,7 +209,11 @@ def main():
     args = parse_cla()
     for year_folder in args.maestro_dir.iterdir():
         if year_folder.is_dir():
-            convert_folder(audio_midi_dir=args.maestro_dir.joinpath(year_folder), sr=args.sr)
+            convert_folder(
+                audio_midi_dir=args.maestro_dir.joinpath(year_folder), 
+                sr=args.sr,
+                chunk_len=args.chunk_len
+                )
 
 
 if __name__ == "__main__":
