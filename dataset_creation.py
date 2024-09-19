@@ -128,14 +128,15 @@ def extract_chunk(
     pr_frames = piano_roll.shape[1]
     sg_frames = norm_db.shape[1]
 
-    pr_rate = pr_frames / song_len
-    sg_rate = sg_frames / song_len
+    # milliseconds per frame
+    pr_rate = song_len / pr_frames 
+    sg_rate = song_len / sg_frames
 
-    start_pr = int(start * pr_rate)
-    end_pr = int(stop * pr_rate)
+    start_pr = round(start * pr_rate)
+    end_pr = round(stop * pr_rate)
 
-    start_sg = int(start * sg_rate)
-    end_sg = int(stop * sg_rate)
+    start_sg = round(start * sg_rate)
+    end_sg = round(stop * sg_rate)
 
     pr_chunk = piano_roll[:, start_pr:end_pr]
     sg_chunk = norm_db[:, start_sg:end_sg]
@@ -157,7 +158,7 @@ def create_tensor(
     midi_path  -- path to the .midi file
     """
     audio, _ = load_wav(audio_path, sample_rate=sr)
-    song_len = len(audio)*1000 # in ms
+    song_len = len(audio)
     midi = pretty_midi.PrettyMIDI(str(midi_path))
     piano_roll = midi.get_piano_roll(fs=100)
 
@@ -174,12 +175,12 @@ def create_tensor(
         )
     norm_db = norm_sg(mel_spectrogram_db)
 
-    for second in range(1, song_len, chunk_len):
+    for m_sec in range(0, song_len, chunk_len):
         chunk_tensor = extract_chunk(
             piano_roll=piano_roll,
             norm_db=norm_db,
-            start=second,
-            stop=second+chunk_len,
+            start=m_sec,
+            stop=m_sec+chunk_len,
             song_len=song_len
         )
 
