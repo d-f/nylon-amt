@@ -1,3 +1,4 @@
+from tqdm import tqdm
 import pretty_midi
 import matplotlib.pyplot as plt
 import torch
@@ -19,7 +20,10 @@ def parse_cla() -> None:
     parser.add_argument("-maestro_dir", type=Path)
     # sample rate to load audio
     parser.add_argument("-sr", type=int, default=16000)
+    # length of time that each piano roll and spectrogram segment should represent
     parser.add_argument("-chunk_len", type=int, default=10000) # in milliseconds
+    # path to save dataset arrays to
+    parser.add_argument("-ds_save_path", type=Path)
     return parser.parse_args()
 
 
@@ -113,6 +117,13 @@ def norm_midi_pitch(midi_pitches):
     return midi_pitches / 127
 
 
+def save_array(arr: np.array, save_fp: str) -> None:
+    """
+    saves numpy array
+    """
+    np.save(file=save_fp, arr=arr)
+
+
 def extract_chunk(
         piano_roll: np.array, 
         norm_db: np.array, 
@@ -139,7 +150,9 @@ def extract_chunk(
     end_sg = round(stop * sg_rate)
 
     pr_chunk = piano_roll[:, start_pr:end_pr]
-    sg_chunk = norm_db[:, start_sg:end_sg]
+    sg_chunk = norm_db[:, start_sg:end_sg].numpy() 
+
+    return pr_chunk, sg_chunk
 
 
 def create_tensor(
@@ -148,6 +161,7 @@ def create_tensor(
         midi_path: str, 
         sr: int,
         chunk_len: int,
+        save_path: Path
         ) -> torch.tensor:
     """
     creates a tensor from an audio and midi file
@@ -176,26 +190,33 @@ def create_tensor(
     norm_db = norm_sg(mel_spectrogram_db)
 
     for m_sec in range(0, song_len, chunk_len):
-        chunk_tensor = extract_chunk(
+        pr_chunk, sg_chunk = extract_chunk(
             piano_roll=piano_roll,
             norm_db=norm_db,
             start=m_sec,
             stop=m_sec+chunk_len,
             song_len=song_len
         )
-
+        save_array(
+            arr=sg_chunk,
+            save_fp=str(save_path.joinpath(f"{m_sec}-{m_sec+chunk_len}-{audio_path.stem}-spec.npy"))
+        )
+        save_array(
+            arr=pr_chunk,
+            save_fp=str(save_path.joinpath(f"{m_sec}-{m_sec+chunk_len}-{audio_path.stem}-piano.npy"))
+        )
 
     if debug_vis:
         plot_spectrogram(mel_spectrogram_db.squeeze(0))
         plt.show()
 
 
-def convert_folder(audio_midi_dir: Path, sr: int, chunk_len: int) -> None:
+def convert_folder(audio_midi_dir: Path, sr: int, chunk_len: int, save_path: Path) -> None:
     """
     converts competition year folder of .wav and .midi files to tensors
     """
     audio_list = [x for x in audio_midi_dir.iterdir() if ".wav" in x.name]
-    for audio_path in audio_list:
+    for audio_path in tqdm(audio_list, desc="Audio files processed"):
         matching_midi_path = [x for x in audio_midi_dir.glob(f"*{audio_path.stem}.midi")][0]
         create_tensor(
             debug_vis=False,
@@ -203,6 +224,7 @@ def convert_folder(audio_midi_dir: Path, sr: int, chunk_len: int) -> None:
             midi_path=matching_midi_path,
             sr=sr,
             chunk_len=chunk_len, # in seconds
+            save_path=save_path
             )
 
 
@@ -213,7 +235,8 @@ def main():
             convert_folder(
                 audio_midi_dir=args.maestro_dir.joinpath(year_folder), 
                 sr=args.sr,
-                chunk_len=args.chunk_len
+                chunk_len=args.chunk_len,
+                save_path=args.ds_save_path
                 )
 
 
