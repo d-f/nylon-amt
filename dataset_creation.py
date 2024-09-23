@@ -21,7 +21,7 @@ def parse_cla() -> None:
     # sample rate to load audio
     parser.add_argument("-sr", type=int, default=16000)
     # length of time that each piano roll and spectrogram segment should represent
-    parser.add_argument("-chunk_len", type=int, default=10000) # in milliseconds
+    parser.add_argument("-chunk_len", type=int, default=5000) 
     # path to save dataset arrays to
     parser.add_argument("-ds_save_path", type=Path)
     return parser.parse_args()
@@ -137,20 +137,13 @@ def extract_chunk(
     frame rates of the two vectors
     """
     pr_frames = piano_roll.shape[1]
-    sg_frames = norm_db.shape[1]
+    pr_to_sg = pr_frames / song_len
 
-    # milliseconds per frame
-    pr_rate = song_len / pr_frames 
-    sg_rate = song_len / sg_frames
-
-    start_pr = round(start * pr_rate)
-    end_pr = round(stop * pr_rate)
-
-    start_sg = round(start * sg_rate)
-    end_sg = round(stop * sg_rate)
+    start_pr = round(start * pr_to_sg)
+    end_pr = round(stop * pr_to_sg)
 
     pr_chunk = piano_roll[:, start_pr:end_pr]
-    sg_chunk = norm_db[:, start_sg:end_sg].numpy() 
+    sg_chunk = norm_db[:, start:stop].numpy() 
 
     return pr_chunk, sg_chunk
 
@@ -172,7 +165,6 @@ def create_tensor(
     midi_path  -- path to the .midi file
     """
     audio, _ = load_wav(audio_path, sample_rate=sr)
-    song_len = len(audio)
     midi = pretty_midi.PrettyMIDI(str(midi_path))
     piano_roll = midi.get_piano_roll(fs=100)
 
@@ -188,6 +180,8 @@ def create_tensor(
         top_db=80.0
         )
     norm_db = norm_sg(mel_spectrogram_db)
+
+    song_len = norm_db.shape[1]
 
     for m_sec in range(0, song_len, chunk_len):
         pr_chunk, sg_chunk = extract_chunk(
@@ -211,12 +205,12 @@ def create_tensor(
         plt.show()
 
 
-def convert_folder(audio_midi_dir: Path, sr: int, chunk_len: int, save_path: Path) -> None:
+def convert_folder(audio_midi_dir: Path, sr: int, chunk_len: int, save_path: Path, year_folder: str) -> None:
     """
     converts competition year folder of .wav and .midi files to tensors
     """
     audio_list = [x for x in audio_midi_dir.iterdir() if ".wav" in x.name]
-    for audio_path in tqdm(audio_list, desc="Audio files processed"):
+    for audio_path in tqdm(audio_list, desc=f"Processing audio files for {year_folder}"):
         matching_midi_path = [x for x in audio_midi_dir.glob(f"*{audio_path.stem}.midi")][0]
         create_tensor(
             debug_vis=False,
@@ -236,7 +230,8 @@ def main():
                 audio_midi_dir=args.maestro_dir.joinpath(year_folder), 
                 sr=args.sr,
                 chunk_len=args.chunk_len,
-                save_path=args.ds_save_path
+                save_path=args.ds_save_path,
+                year_folder=year_folder.name
                 )
 
 
