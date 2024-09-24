@@ -1,10 +1,7 @@
 # music-transcription
-MAESTRO dataset for piano transcription [https://magenta.tensorflow.org/datasets/maestro](https://magenta.tensorflow.org/datasets/maestro)
+This project uses GPT2 in order to automatically transcribe audio files into sheet music. This is done by training a model to output a vector representing a piano roll given a mel spectrogram. The MAESTRO dataset found [here](https://magenta.tensorflow.org/datasets/maestro) is made from pairs of audio and MIDI data (aligned with ~3ms accuracy) from multiple years of piano recitals, totaling 200 hours. This was converted into input and output pair tensors with dataset_creation.py
 
-t5-small model architecture: https://huggingface.co/transformers/v4.8.2/model_doc/t5.html
-
-Alphatab [github repository](https://github.com/CoderLine/alphaTab) for tab visualization
-
+[Alphatab](https://github.com/CoderLine/alphaTab) will be used for tab visualization.
 
 ![image](https://github.com/user-attachments/assets/f86ede41-5993-40af-a636-491630587b08)
 
