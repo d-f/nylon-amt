@@ -40,11 +40,15 @@ def train(num_epochs):
     criterion = torch.nn.CrossEntropyLoss()
 
     embedded_input = embedding(sg_tensor.transpose(1, 2))
+    pr_tensor = pr_tensor.view(pr_tensor.shape[0], -1)
+    pr_embed = model.transformer.wte(pr_tensor.int())
+
 
     for epoch_idx in range(num_epochs):
+        
         output = model(inputs_embeds=embedded_input)
         next_token = output.logits[:, -1, :]
-        print(next_token.shape)
+        
 
 
 def main():
