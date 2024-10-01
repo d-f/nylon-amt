@@ -3,6 +3,7 @@ import numpy as np
 from transformers import GPT2LMHeadModel, GPT2Config, AdamW
 import torch.nn as nn
 from typing import Type
+from tqdm import tqdm
 
 
 class PianoGPT(nn.Module):
@@ -41,6 +42,7 @@ def define_model(spec_len: int, pr_dim: int, embed_dim, sg_dim, device) -> Type[
     config.n_positions = spec_len
     gpt_model = GPT2LMHeadModel(config)
     gpt_model.resize_token_embeddings(new_num_tokens=pr_dim)
+    gpt_model.gradient_checkpointing_enable()
     piano_gpt = PianoGPT(input_dim=spec_len, pr_dim=pr_dim, gpt=gpt_model, embed_dim=embed_dim, sg_dim=sg_dim, device=device)
     
     return piano_gpt
@@ -59,14 +61,15 @@ def train(num_epochs):
     optimizer = AdamW(model.parameters(), lr=1e-3)
     criterion = torch.nn.CrossEntropyLoss()
 
-    for epoch_idx in range(num_epochs):
+    for epoch_idx in tqdm(range(num_epochs), desc="Epoch"):
         piano = model.embed_pr(pr_tensor)
         embedded_input = model.embed_sg(sg_tensor)
-        pr_tensor_slices = torch.split(piano, split_size_or_sections=1, dim=2)
+        pr_embed_slices = torch.split(piano, split_size_or_sections=1, dim=1)
+        pr_tensor_slices = torch.split(pr_tensor, split_size_or_sections=1, dim=2)
 
-        for pr_idx in range(len(pr_tensor_slices)):
+        for pr_idx in tqdm(range(len(pr_embed_slices)), desc="Piano Roll"):
             next_token = model(embedded_input)
-            loss = criterion(next_token, pr_tensor_slices[pr_idx])
+            loss = criterion(next_token, pr_tensor_slices[pr_idx].squeeze(-1))
             print(loss)
             optimizer.zero_grad()
             if pr_idx < pr_tensor.shape[2] - 2:
@@ -77,8 +80,8 @@ def train(num_epochs):
 
             # shift input and concatenate ground truth piano roll 
             # for teacher forcing
-            embedded_input = torch.cat(tensors=[embedded_input[:, 1:, :], pr_tensor_slices[pr_idx].unsqueeze(0)], dim=1)
-        
+            embedded_input = torch.cat(tensors=[embedded_input[:, 1:, :], pr_embed_slices[pr_idx]], dim=1)        
+
 
 def main():
     train(num_epochs=10)
