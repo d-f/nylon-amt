@@ -15,49 +15,47 @@ class PianoGPT(nn.Module):
         self.input_dim = input_dim
         self.gpt = gpt
         self.sg_embed = nn.Sequential(
-    nn.Linear(sg_dim, embed_dim),
-    nn.LayerNorm(embed_dim), # Normalize after embedding
-    nn.Dropout(0.1)
-)
+                            nn.Linear(sg_dim, embed_dim),
+                            nn.LayerNorm(embed_dim), 
+                            nn.Dropout(0.1)
+                        )
         self.pr_embed = nn.Sequential(
-    nn.Linear(pr_dim, embed_dim),
-    nn.LayerNorm(embed_dim),  # Normalize after embedding
-    nn.Dropout(0.1)
-)
+                            nn.Linear(pr_dim, embed_dim),
+                            nn.LayerNorm(embed_dim),  
+                            nn.Dropout(0.1)
+                        )
         self.embed_dim = embed_dim
         self.device = device
         self.loss_fn = nn.CrossEntropyLoss()
 
     def forward(self, x, labels=None):
-        sg_embedded = self.embed_sg(x)  # Embed the spectrogram (shape: batch_size, seq_len, embed_dim)
-        # pr_embedded = torch.zeros_like(sg_embedded).to(self.device)  # Initialize piano roll output (all zeros)
-
-        # Start with an SOS token or the first piano roll token
-        sos_token = torch.zeros((x.shape[0], 1, self.embed_dim)).to(self.device)  # SOS token (batch_size, 1, embed_dim)
-        input_tokens = torch.cat([sos_token, sg_embedded], dim=1)  # Combine SOS token and spectrogram
+        sg_embedded = self.embed_sg(x)  
+      
+        sos_token = torch.zeros((x.shape[0], 1, self.embed_dim)).to(self.device) 
+        input_tokens = torch.cat([sos_token, sg_embedded], dim=1)  
         
         outputs = []
         loss = 0
         self.gpt.to(self.device)
         self.pr_embed.to(self.device)
 
-        for t in range(1, sg_embedded.size(1) + 1):  # Auto-regressively generate tokens
-            gpt_output = self.gpt(inputs_embeds=input_tokens).logits  # Get the next token logits from GPT-2
+        for t in range(1, sg_embedded.size(1) + 1):  
+            gpt_output = self.gpt(inputs_embeds=input_tokens).logits 
             
-            next_token_logits = gpt_output[:, -1, :]  # Only take the last token's logits
+            next_token_logits = gpt_output[:, -1, :]  
             
-            outputs.append(next_token_logits.unsqueeze(1))  # Append the predicted token for output
+            outputs.append(next_token_logits.unsqueeze(1)) 
             
-            # Update input tokens for the next step
-            next_token_embed = self.embed_pr(next_token_logits.float())  # Embed the predicted token
-            input_tokens = torch.cat([input_tokens[:, 1:, :], next_token_embed.unsqueeze(0)], dim=1)  # Concatenate to input tokens
+           
+            next_token_embed = self.embed_pr(next_token_logits.float())  
+            input_tokens = torch.cat([input_tokens[:, 1:, :], next_token_embed.unsqueeze(1)], dim=1) 
 
-            # Compute loss if labels are provided
+           
             if labels is not None:
-                target_token = labels[:, :, :, t].squeeze(0).to(self.device)  # Get the ground truth token
-                loss += self.loss_fn(next_token_logits, target_token)  # Calculate cross-entropy loss
+                target_token = labels[:, :, :, t].squeeze(0).to(self.device) 
+                loss += self.loss_fn(next_token_logits, target_token.squeeze(1))  
             
-        # Stack the outputs into the final predicted piano roll
+  
         outputs = torch.cat(outputs, dim=1)
         
         return (loss, outputs) if labels is not None else outputs
@@ -116,6 +114,32 @@ def define_model(spec_len: int, pr_dim: int, embed_dim, sg_dim, device) -> Type[
     return piano_gpt
 
 
+def collate_fn(batch):
+    max_sg_len = max([item['x'].shape[2] for item in batch]) 
+    max_pr_len = max([item['label_ids'].shape[2] for item in batch]) 
+    
+    sg_padded = []
+    pr_padded = []
+    
+    for item in batch:
+        sg = item['x']
+        pr = item['label_ids']
+        
+        
+        pad_len_sg = max_sg_len - sg.shape[2]
+        sg_padded.append(torch.nn.functional.pad(sg, (0, pad_len_sg)))
+        
+        
+        pad_len_pr = max_pr_len - pr.shape[2]
+        pr_padded.append(torch.nn.functional.pad(pr, (0, pad_len_pr)))
+    
+    
+    sg_batch = torch.stack(sg_padded)
+    pr_batch = torch.stack(pr_padded)
+    
+    return {"x": sg_batch, "labels": pr_batch}
+
+
 def train(num_epochs):
     torch.autograd.set_detect_anomaly(True)
     device = torch.device("cuda")
@@ -124,18 +148,21 @@ def train(num_epochs):
     for param in model.parameters():
         param.requires_grad = True
 
-    # Define training arguments
+   
     training_args = TrainingArguments(
         output_dir="./results",
-        per_device_train_batch_size=1,
+        per_device_train_batch_size=2,
         num_train_epochs=10,
         logging_dir="C:\\personal_ML\\music-transcription\\logs",
         learning_rate=1e-3,
+        logging_steps=1,
+        max_grad_norm=1.0,
     )
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=dataset,
+        data_collator=collate_fn
     )
 
     trainer.train()
