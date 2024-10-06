@@ -1,3 +1,4 @@
+import random
 from pathlib import Path
 import torch
 import numpy as np
@@ -31,33 +32,6 @@ class PianoGPT(nn.Module):
         self.gpt.to(device)
         self.pr_embed.to(device)
 
-
-    def forward(self, x, labels=None):
-        sg_embedded = self.embed_sg(x)  
-
-        sos_token = torch.zeros((x.shape[0], 1, self.embed_dim)).to(self.device)  
-        input_tokens = torch.cat([sos_token, sg_embedded], dim=1)  
-        
-        outputs = []
-        loss = 0
-
-        for t in range(1, sg_embedded.size(1) + 1):  
-            gpt_output = self.gpt(inputs_embeds=input_tokens).logits 
-            next_token_logits = gpt_output[:, -1, :]  
-            
-            outputs.append((next_token_logits.unsqueeze(1) > 0.5).float())  
-        
-            next_token_embed = self.embed_pr(next_token_logits.float()) 
-            input_tokens = torch.cat([input_tokens[:, 1:, :], next_token_embed.unsqueeze(1)], dim=1) 
-
-            if labels is not None:
-                target_token = labels.squeeze(1)[:, :, t]
-                loss += self.loss_fn(next_token_logits, target_token)  
-            
-        outputs = torch.cat(outputs, dim=1)
-        
-        return (loss, outputs) if labels is not None else outputs
-
     def embed_pr(self, x):
         pr_embed = self.pr_embed(x)
         return pr_embed
@@ -68,11 +42,37 @@ class PianoGPT(nn.Module):
         embedded_input = self.sg_embed(x).to(self.device)
         return embedded_input
     
+    def forward(self, x, labels=None):
+            sg_embedded = self.embed_sg(x)  
+
+            sos_token = torch.zeros((x.shape[0], 1, self.embed_dim)).to(self.device)  
+            input_tokens = torch.cat([sos_token, sg_embedded], dim=1)  
+            
+            outputs = []
+            loss = 0
+
+            for t in range(1, sg_embedded.size(1) + 1):  
+                gpt_output = self.gpt(inputs_embeds=input_tokens).logits 
+                next_token_logits = gpt_output[:, -1, :]  
+                
+                outputs.append((next_token_logits.unsqueeze(1) > 0.5).float())  
+            
+                next_token_embed = self.embed_pr(next_token_logits.float()) 
+                input_tokens = torch.cat([input_tokens[:, 1:, :], next_token_embed.unsqueeze(1)], dim=1) 
+
+                if labels is not None:
+                    target_token = labels.squeeze(1)[:, :, t]
+                    loss += self.loss_fn(next_token_logits, target_token)  
+            loss /= sg_embedded.size(1)
+            outputs = torch.cat(outputs, dim=1)
+            
+            return (loss, outputs) if labels is not None else outputs
+
 
 class PianoDataset(torch.utils.data.Dataset):
-    def __init__(self, file_dir, device, pr_max):
-        self.sg_files = [x for x in file_dir.iterdir() if "spec" in str(x)]
-        self.pr_files = [x for x in file_dir.iterdir() if "piano" in str(x)]
+    def __init__(self, sg_files, pr_files, device, pr_max):
+        self.sg_files = sg_files
+        self.pr_files = pr_files
         self.pr_max = pr_max
         self.device = device
 
@@ -99,7 +99,6 @@ def define_model(spec_len: int, pr_dim: int, embed_dim, sg_dim, device) -> Type[
     """
     returns GPT2 model
     """
-
     config = GPT2Config.from_pretrained('gpt2')
     config.n_inner = 256
     config.n_layer = 2
@@ -109,14 +108,15 @@ def define_model(spec_len: int, pr_dim: int, embed_dim, sg_dim, device) -> Type[
     gpt_model = GPT2LMHeadModel(config)
     gpt_model.resize_token_embeddings(new_num_tokens=pr_dim)
     gpt_model.gradient_checkpointing_enable()
-    for param in gpt_model.parameters():
-        param.data = bnb.nn.Int8Params(param.data, requires_grad=True)
     piano_gpt = PianoGPT(input_dim=spec_len, pr_dim=pr_dim, gpt=gpt_model, embed_dim=embed_dim, sg_dim=sg_dim, device=device)
     
     return piano_gpt
 
 
 def collate_fn(batch):
+    """
+    pads items and stacks them to form a batch
+    """
     max_sg_len = max([item['x'].shape[2] for item in batch])  
     max_pr_len = max([item['label_ids'].shape[2] for item in batch])  
 
@@ -139,43 +139,59 @@ def collate_fn(batch):
     return {"x": sg_batch, "labels": pr_batch}
 
 
-def replace_with_8bit_linear(model):
-    for name, module in model.named_children():
-        if isinstance(module, nn.Linear):
-            setattr(model, name, bnb.nn.Linear8bitLt(module.in_features, module.out_features, has_fp16_weights=False))
+def open_csv(csv_path):
+    csv_list = []
+    with open(csv_path) as opened_csv:
+        for row in opened_csv:
+            csv_list.append(row)
+    return csv_list
 
 
 def train(num_epochs):
     torch.autograd.set_detect_anomaly(True)
     device = torch.device("cuda")
-    dataset = PianoDataset(device=device, pr_max=204, file_dir=Path("C:\\personal_ML\\music-transcription\\save\\"))
-    model = define_model(spec_len=100+1, pr_dim=128, embed_dim=256, sg_dim=40, device=device).to(device)
-    replace_with_8bit_linear(model)
 
-    lr = 5e-5
+    train_sg = open_csv("C:\\personal_ML\\music-transcription\\train_sg.csv")
+    train_pr = open_csv("C:\\personal_ML\\music-transcription\\train_pr.csv")
+    val_sg = open_csv("C:\\personal_ML\\music-transcription\\val_sg.csv")
+    val_pr = open_csv("C:\\personal_ML\\music-transcription\\val_pr.csv")
+    test_sg = open_csv("C:\\personal_ML\\music-transcription\\test_sg.csv")
+    test_pr = open_csv("C:\\personal_ML\\music-transcription\\test_pr.csv")
+
+    train_ds = PianoDataset(device=device, pr_max=204, sg_files=train_sg, pr_files=train_pr)
+    val_ds = PianoDataset(device=device, pr_files=val_pr, sg_files=val_sg, pr_max=204)
+    test_ds = PianoDataset(device=device, pr_files=test_pr, sg_files=test_sg, pr_max=204)
+    model = define_model(spec_len=100+1, pr_dim=128, embed_dim=256, sg_dim=40, device=device).to(device)
+
+    lr = 1e-4
+    batch_size = 220
 
     training_args = TrainingArguments(
         output_dir="./results",
-        per_device_train_batch_size=220, # 200
+        per_device_train_batch_size=batch_size,
         num_train_epochs=num_epochs,
         logging_dir="C:\\personal_ML\\music-transcription\\logs",
-        logging_steps=100,
+        logging_steps=1,
         max_grad_norm=1.0,
+        gradient_accumulation_steps=1,
+        do_eval=True,
+        eval_steps=int(len(train_sg) / batch_size),
+        eval_strategy="steps"
     )
     trainer = Trainer(
         model=model,
         args=training_args,
-        train_dataset=dataset,
+        train_dataset=train_ds,
         data_collator=collate_fn,
         optimizers=(Adam8bit(model.parameters(), lr=lr), None),
+        eval_dataset=val_ds
     )
 
     trainer.train()
 
 
 def main():
-    train(num_epochs=10)
-
+    train(num_epochs=256)
 
 if __name__ == "__main__":
     main()
