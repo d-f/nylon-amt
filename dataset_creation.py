@@ -17,13 +17,13 @@ def parse_cla() -> None:
     """
     parser = argparse.ArgumentParser()
     # folder that contains a folder for every competition year with midi and wav mixed within the same folder
-    parser.add_argument("-maestro_dir", type=Path)
+    parser.add_argument("-maestro_dir", type=Path, default=Path("C:\\personal_ML\\music-transcription\\maestro-v3.0.0\\maestro-v3.0.0\\"))
     # sample rate to load audio
     parser.add_argument("-sr", type=int, default=16000)
     # length of time that each piano roll and spectrogram segment should represent
-    parser.add_argument("-chunk_len", type=int, default=5000) 
+    parser.add_argument("-chunk_len", type=int, default=100) 
     # path to save dataset arrays to
-    parser.add_argument("-ds_save_path", type=Path)
+    parser.add_argument("-ds_save_path", type=Path, default=Path("C:\\personal_ML\\music-transcription\\save\\"))
     return parser.parse_args()
 
 
@@ -143,6 +143,9 @@ def extract_chunk(
     end_pr = round(stop * pr_to_sg)
 
     pr_chunk = piano_roll[:, start_pr:end_pr]
+    pr_chunk = np.concatenate([pr_chunk, np.zeros(shape=(1, pr_chunk.shape[1]))], axis=0)
+    eos_token = np.transpose(np.expand_dims(np.array([0 for x in range(pr_chunk.shape[0] - 1)] + [1]), 0))
+    pr_chunk = np.concatenate([pr_chunk, eos_token], axis=1)
     sg_chunk = norm_db[:, start:stop].numpy() 
 
     return pr_chunk, sg_chunk
