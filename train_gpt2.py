@@ -6,8 +6,6 @@ from transformers import GPT2LMHeadModel, GPT2Config
 import torch.nn as nn
 from typing import Type
 from transformers import GPT2LMHeadModel, GPT2Config, Trainer, TrainingArguments
-from bitsandbytes.optim import Adam8bit
-import bitsandbytes as bnb
 import torch.nn.functional as F
 
 
@@ -75,8 +73,6 @@ class PianoGPT(nn.Module):
             if labels is None:
                 next_token_preds = (torch.sigmoid(next_token_logits) > 0.5).float()
                 eos_detected = torch.all(torch.abs(next_token_preds - self.eos_token) < 1e-6, dim=1)
-                eos_ground_truth = torch.all(torch.abs(labels[:, t] - self.eos_token) < 1e-6, dim=1)
-                eos_detected = eos_detected & eos_ground_truth 
                 finished_sequences = finished_sequences | eos_detected
                 if torch.all(finished_sequences):
                     break
@@ -179,30 +175,49 @@ def open_csv(csv_path):
     return csv_list
 
 
-def test_model(model, test_ds, device):
-    pred_list = []
-    label_list = []
-
-    test_dl = DataLoader(test_ds, batch_size=64, collate_fn=collate_fn)
-
-    for output_dict in tqdm(test_dl):
-        pred = model(output_dict['x'].to(device)).transpose(1, 2)
-        labels = output_dict["labels"].to(device)
-        pred = (pred > 0.5)*1
-        pred_list.append(pred)
-        label_list.append(labels)
-
+def calculate_metrics_by_time(model, test_ds, device, batch_size, window_size=50):
+    """Calculate metrics in sliding windows to see how performance changes over time"""
+    test_dl = DataLoader(test_ds, batch_size=batch_size, collate_fn=collate_fn)
+    metrics_over_time = []
     
-    predictions = torch.cat(pred_list, dim=0)
-    labels = torch.cat(label_list, dim=0)
+    with torch.no_grad():
+        for output_dict in tqdm(test_dl):
+            x = output_dict['x'].to(device)
+            labels = output_dict["labels"].to(device).squeeze(1)
+            
+            predictions = model(x).transpose(1, 2)
+            predictions = (torch.sigmoid(predictions) > 0.5).float()
+            
+            max_len = max(predictions.shape[2], labels.shape[2])
+            predictions = F.pad(predictions, (0, max_len - predictions.shape[2]))
+            labels = F.pad(labels, (0, max_len - labels.shape[2]))
+            
+            # Calculate metrics for sliding windows
+            for start in range(0, max_len - window_size, window_size // 2):
+                end = start + window_size
+                pred_window = predictions[:, :, start:end]
+                label_window = labels[:, :, start:end]
+                
+                tp = ((pred_window == 1) & (label_window == 1)).sum().item()
+                fp = ((pred_window == 1) & (label_window == 0)).sum().item()
+                fn = ((pred_window == 0) & (label_window == 1)).sum().item()
+                
+                precision = tp / (tp + fp + 1e-8)
+                recall = tp / (tp + fn + 1e-8)
+                f1 = 2 * (precision * recall) / (precision + recall + 1e-8)
+                
+                metrics_over_time.append({
+                    'time_step': start,
+                    'precision': precision,
+                    'recall': recall,
+                    'f1': f1
+                })
+    
+    return metrics_over_time
 
-    predicted_notes = (torch.sigmoid(predictions) > 0.5).float()
-    accuracy = (predicted_notes == labels.squeeze(1)).float().mean()
-
-    return accuracy
 
 
-def train(num_epochs):
+def train(num_epochs, resume_from_checkpoint=None):
     torch.autograd.set_detect_anomaly(True)
     device = torch.device("cuda")
 
@@ -219,9 +234,7 @@ def train(num_epochs):
     model = define_model(spec_len=100+1, pr_dim=128+1, embed_dim=128, sg_dim=40, device=device, max_gen=256).to(device)
 
     lr = 1e-4
-    batch_size = 64
-    acc = test_model(model=model, test_ds=test_ds, device=device)
-    print(acc)
+    batch_size = 180
 
     training_args = TrainingArguments(
         output_dir="./results",
@@ -230,28 +243,43 @@ def train(num_epochs):
         logging_dir="C:\\personal_ML\\music-transcription\\logs",
         learning_rate=lr,
         optim="adamw_hf",
-        logging_steps=1,
+        logging_steps=50,
         max_grad_norm=1.0,
         do_eval=True,
         eval_steps=int(len(train_sg) / batch_size),
         eval_strategy="steps",
+        save_strategy="epoch",
+        save_total_limit=3, 
+        load_best_model_at_end=True, 
+        metric_for_best_model="eval_loss",
+        save_safetensors=False,      
+        push_to_hub=False,        
     )
+
     trainer = Trainer(
         model=model,
-        args=training_args,
+        args=training_args, 
         train_dataset=train_ds,
         data_collator=collate_fn,
         eval_dataset=val_ds
     )
+    if resume_from_checkpoint:
+        trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+    else:
+        trainer.train()
 
-    trainer.train()
-    torch.save(model, "C:\\personal_ML\\music-transcription\\model_1.pth.tar")    
-    acc = test_model(model=model, test_ds=test_ds, device=device)
-    print(acc)
+    metrics_over_time = calculate_metrics_by_time(model=model, test_ds=test_ds, device=device, batch_size=64, window_size=10)
+    precision = sum([x["precision"] for x in metrics_over_time])
+    recall = sum([x["recall"] for x in metrics_over_time])
+    f1 = sum([x["f1"] for x in metrics_over_time])
+
+    print("precision", precision)
+    print("recall", recall)
+    print("f1", f1)
 
 
 def main():
-    train(num_epochs=1)
+    train(num_epochs=4)
 
 if __name__ == "__main__":
     main()
