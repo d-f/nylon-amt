@@ -1,3 +1,4 @@
+from pathlib import Path
 import argparse
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -341,20 +342,68 @@ def parse_cla():
     parser.add_argument("-n_layer", type=int, default=5) # number of hidden layers in the transformer
     parser.add_argument("-n_head", type=int, default=5) # number of attention heads
     parser.add_argument("-n_positions", type=int, default=256) # maximum sequence length
+    parser.add_argument("-chkpt_num", type=int, default=None) # number on the checkpoint folder name e.g. checkpoint-100
+    parser.add_argument("-csv_dir", type=Path, default=Path("C:\\personal_ML\\music-transcription\\csv\\")) # folder that contains dataset csvs
     return parser.parse_args()
 
 
-def train(num_epochs, resume_from_checkpoint=None):
-    torch.autograd.set_detect_anomaly(True)
+def train(
+        num_epochs: int,
+        patience: int,
+        patience_thresh: float,
+        batch_size: int,
+        output_dir: str,
+        lr: float,
+        model: Type[PianoGPT],
+        train_ds: Type[PianoDataset],
+        val_ds: Type[PianoDataset],
+        resume_from_checkpoint=None
+        ) -> None:
+    early_stopping_callback = EarlyStoppingCallback(
+        patience=patience,
+        threshold=patience_thresh
+    )
+    training_args = TrainingArguments(
+        output_dir=output_dir,
+        per_device_train_batch_size=batch_size,
+        num_train_epochs=num_epochs,
+        logging_strategy="epoch",
+        logging_first_step=False,
+        learning_rate=lr,
+        optim="adamw_hf",
+        max_grad_norm=1.0,
+        do_eval=True,
+        eval_strategy="epoch",
+        save_strategy="epoch",
+        save_total_limit=1, 
+        load_best_model_at_end=True, 
+        metric_for_best_model="eval_loss",
+        save_safetensors=False,      
+        push_to_hub=False,        
+    )
+    trainer = Trainer(
+        model=model,
+        args=training_args, 
+        train_dataset=train_ds,
+        data_collator=collate_fn,
+        eval_dataset=val_ds,
+        callbacks=[early_stopping_callback]
+    )
+    if resume_from_checkpoint:
+        trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+    else:
+        trainer.train()
+
+
+def main():
     args = parse_cla()
     device = torch.device("cuda")
-
-    train_sg = open_csv("C:\\personal_ML\\music-transcription\\train_sg.csv")
-    train_pr = open_csv("C:\\personal_ML\\music-transcription\\train_pr.csv")
-    val_sg = open_csv("C:\\personal_ML\\music-transcription\\val_sg.csv")
-    val_pr = open_csv("C:\\personal_ML\\music-transcription\\val_pr.csv")
-    test_sg = open_csv("C:\\personal_ML\\music-transcription\\test_sg.csv")
-    test_pr = open_csv("C:\\personal_ML\\music-transcription\\test_pr.csv")
+    train_sg = open_csv(args.csv_dir.joinpath("train_sg.csv"))
+    train_pr = open_csv(args.csv_dir.joinpath("train_pr.csv"))
+    val_sg = open_csv(args.csv_dir.joinpath("val_sg.csv"))
+    val_pr = open_csv(args.csv_dir.joinpath("val_pr.csv"))
+    test_sg = open_csv(args.csv_dir.joinpath("test_sg.csv"))
+    test_pr = open_csv(args.csv_dir.joinpath("test_pr.csv"))
 
     train_ds = PianoDataset(device=device, pr_max=args.pr_max, sg_files=train_sg, pr_files=train_pr)
     val_ds = PianoDataset(device=device, pr_files=val_pr, sg_files=val_sg, pr_max=args.pr_max)
@@ -372,52 +421,33 @@ def train(num_epochs, resume_from_checkpoint=None):
         n_positions=args.n_positions
         ).to(device)
 
-    lr = args.lr
-    batch_size = args.bs
-
-    early_stopping_callback = EarlyStoppingCallback(
-        patience=args.patience,
-        threshold=args.patience_thresh
-    )
-
-    training_args = TrainingArguments(
-        output_dir=args.output_dir,
-        per_device_train_batch_size=batch_size,
-        num_train_epochs=num_epochs,
-        logging_strategy="epoch",
-        logging_first_step=False,
-        learning_rate=lr,
-        optim="adamw_hf",
-        max_grad_norm=1.0,
-        do_eval=True,
-        eval_strategy="epoch",
-        save_strategy="epoch",
-        save_total_limit=1, 
-        load_best_model_at_end=True, 
-        metric_for_best_model="eval_loss",
-        save_safetensors=False,      
-        push_to_hub=False,        
-    )
-
-    trainer = Trainer(
-        model=model,
-        args=training_args, 
-        train_dataset=train_ds,
-        data_collator=collate_fn,
-        eval_dataset=val_ds,
-        callbacks=[early_stopping_callback]
-    )
-    if resume_from_checkpoint:
-        trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+    if args.chkpt_num:
+        train(
+            num_epochs=args.num_epochs,
+            patience=args.patience,
+            patience_thresh=args.patience_thresh,
+            batch_size=args.bs,
+            output_dir=args.output_dir,
+            lr=args.lr,
+            model=model,
+            train_ds=train_ds, 
+            val_ds=val_ds,
+            resume_from_checkpoint=Path(args.output_dir).joinpath(f"checkpoint-{args.chkpt_num}")
+            )
     else:
-        trainer.train()
-
-    acc = test_model(model=model, test_ds=test_ds, device=device, batch_size=batch_size)
+        train(
+            num_epochs=args.num_epochs,
+            patience=args.patience,
+            patience_thresh=args.patience_thresh,
+            batch_size=args.bs,
+            output_dir=args.output_dir,
+            lr=args.lr,
+            model=model,
+            train_ds=train_ds, 
+            val_ds=val_ds,
+            )
+    acc = test_model(model=model, test_ds=test_ds, device=device, batch_size=args.bs)
     print("accuracy:", acc)
-
-
-def main():
-    train(num_epochs=1)
 
 
 if __name__ == "__main__":
