@@ -224,7 +224,7 @@ def open_csv(csv_path):
     return csv_list
 
 
-def prediction_accuracy(model, test_ds, device, batch_size):
+def test_model(model, test_ds, device, batch_size):
     """
     defines accuracy as the proportion of correctly predicted piano roll notes
     predictions are considered incorrect if they extend beyond the ground truth
@@ -331,7 +331,7 @@ def train(num_epochs, resume_from_checkpoint=None):
         except Exception as e:
             print(e)
 
-    acc = prediction_accuracy(model=model, test_ds=test_ds, device=device, batch_size=64)
+    acc = test_model(model=model, test_ds=test_ds, device=device, batch_size=64)
     print("accuracy:", acc)
 
 
