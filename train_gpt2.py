@@ -1,4 +1,4 @@
-from pathlib import Path
+import argparse
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import torch
@@ -6,12 +6,23 @@ import numpy as np
 from transformers import GPT2LMHeadModel, GPT2Config
 import torch.nn as nn
 from typing import Type
-from transformers import GPT2LMHeadModel, GPT2Config, Trainer, TrainingArguments, TrainerCallback
+from transformers import GPT2LMHeadModel, GPT2Config, Trainer, TrainingArguments, TrainerCallback, TrainerState, TrainerControl
+from typing import Dict, List
 import torch.nn.functional as F
 
 
 class PianoGPT(nn.Module):
-    def __init__(self, input_dim, pr_dim, gpt, embed_dim, sg_dim, device, max_token_gen):
+    def __init__(
+            self, 
+            input_dim: int, 
+            pr_dim: int, 
+            gpt: Type[GPT2LMHeadModel], 
+            embed_dim: int, 
+            sg_dim: int, 
+            device: Type[torch.device], 
+            max_token_gen: int
+            ) -> None:
+        
         super(PianoGPT, self).__init__()
         self.input_dim = input_dim
         self.gpt = gpt
@@ -36,46 +47,57 @@ class PianoGPT(nn.Module):
         self.eos_token = torch.zeros(pr_dim).to(device)
         self.eos_token[-1] = 1
         
-    def create_padding_mask(self, labels):
+    def create_padding_mask(self, labels: torch.tensor) -> torch.tensor:
         # creates a mask where -1 values are 0 (ignored) and others are 1
         return (labels != -1).float()
     
-    def embed_pr(self, x):
+    def embed_pr(self, x: torch.tensor) -> torch.tensor:
+        """
+        embed the piano roll [batch, 129] -> [batch, embed_dim]
+        """
         return self.pr_embed(x)
     
-    def embed_sg(self, x):
+    def embed_sg(self, x: torch.tensor) -> torch.tensor:
+        """
+        embed spectrogram [batch, 1, 40, n] -> [batch, embed_dim, n]
+        """
         x = x.squeeze(1) 
-        x = x.transpose(1, 2)
+        x = x.transpose(1, 2) # transpose so that feature dimenions match along piano roll and spectrogram projections
         embedded = self.sg_embed(x)
         return embedded
     
-    def forward(self, x, labels=None):
+    def forward(self, x: torch.tensor, labels=None):
+        """
+        model forward function, takes in spectrogram and outputs piano roll
+        """
         batch_size = x.shape[0]
+        # embed spectrogram
         sg_embedded = self.embed_sg(x)
-        input_tokens = sg_embedded
         
         outputs = []
         total_loss = 0.0
         num_valid_tokens = 0
+        # keep track of which sequences have finished in the batch
         finished_sequences = torch.zeros(batch_size, dtype=torch.bool).to(self.device)
 
         if labels is not None:
+            # pad labels to ignore -1
             seq_length = labels.size(3)
             padding_mask = self.create_padding_mask(labels)
         else:
             seq_length = self.max_token_gen
 
         for t in range(seq_length):
-            if input_tokens.size(1) > self.gpt.config.n_positions:
-                input_tokens = input_tokens[:, -self.gpt.config.n_positions:, :]
+            if sg_embedded.size(1) > self.gpt.config.n_positions:
+                sg_embedded = sg_embedded[:, -self.gpt.config.n_positions:, :]
 
-            # create attention mask for GPT to ignore padded tokens
+            # create padding mask for attention to ignore -1
             attention_mask = None
             if labels is not None:
-                attention_mask = (input_tokens.sum(dim=-1) != 0).float()
+                attention_mask = (sg_embedded.sum(dim=-1) != 0).float()
 
             gpt_output = self.gpt(
-                inputs_embeds=input_tokens,
+                inputs_embeds=sg_embedded,
                 attention_mask=attention_mask
             ).logits
             
@@ -104,7 +126,7 @@ class PianoGPT(nn.Module):
                 num_valid_tokens += mask.sum()
 
             next_token_embed = self.embed_pr(next_token).unsqueeze(1)
-            input_tokens = torch.cat([input_tokens, next_token_embed], dim=1)
+            sg_embedded = torch.cat([sg_embedded, next_token_embed], dim=1)
 
         outputs = torch.stack(outputs, dim=1)
 
@@ -120,7 +142,14 @@ class EarlyStoppingCallback(TrainerCallback):
         self.patience_counter = 0
         self.best_metric = None
         
-    def on_evaluate(self, args: TrainingArguments, state, control, metrics, **kwargs):
+    def on_evaluate(
+            self, 
+            args: TrainingArguments, 
+            state: Type[TrainerState], 
+            control: Type[TrainerControl], 
+            metrics: Dict, 
+            **kwargs: Dict
+            ) -> None:
         eval_metric = metrics.get("eval_loss")
         if eval_metric is None:
             return
@@ -148,7 +177,7 @@ class PianoDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.sg_files)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> Dict:
         sg_path = self.sg_files[idx]
         pr_path = self.pr_files[idx]
 
@@ -164,25 +193,44 @@ class PianoDataset(torch.utils.data.Dataset):
         return {"x": sg_tensor, "label_ids": pr_tensor}
 
 
-def define_model(spec_len: int, pr_dim: int, embed_dim, sg_dim, device, max_gen) -> Type[GPT2LMHeadModel]:
+def define_model(
+        spec_len: int, 
+        pr_dim: int, 
+        embed_dim, 
+        sg_dim, 
+        device, 
+        max_gen,
+        n_inner: int,
+        n_layer: int,
+        n_head: int,
+        n_positions: int,
+        ) -> Type[GPT2LMHeadModel]:
     """
     returns GPT2 model
     """
     config = GPT2Config.from_pretrained('gpt2')
-    config.n_inner = 256
-    config.n_layer = 2
-    config.n_head = 2
-    config.n_positions = 512
+    config.n_inner = n_inner
+    config.n_layer = n_layer
+    config.n_head = n_head
+    config.n_positions = n_positions
     config.n_embd = embed_dim
     gpt_model = GPT2LMHeadModel(config)
     gpt_model.resize_token_embeddings(new_num_tokens=pr_dim)
     gpt_model.gradient_checkpointing_enable()
-    piano_gpt = PianoGPT(input_dim=spec_len, pr_dim=pr_dim, gpt=gpt_model, embed_dim=embed_dim, sg_dim=sg_dim, device=device, max_token_gen=max_gen)
+    piano_gpt = PianoGPT(
+        input_dim=spec_len, 
+        pr_dim=pr_dim, 
+        gpt=gpt_model, 
+        embed_dim=embed_dim, 
+        sg_dim=sg_dim, 
+        device=device, 
+        max_token_gen=max_gen
+        )
     
     return piano_gpt
 
 
-def collate_fn(batch):
+def collate_fn(batch: Dict) -> Dict:
     max_pr_len = max([item['label_ids'].shape[2] for item in batch])
     max_sg_len = max([item['x'].shape[2] for item in batch])
 
@@ -215,7 +263,7 @@ def collate_fn(batch):
     return {"x": sg_batch, "labels": pr_batch}
 
 
-def open_csv(csv_path):
+def open_csv(csv_path: str) -> List:
     csv_list = []
     with open(csv_path) as opened_csv:
         for row in opened_csv:
@@ -224,7 +272,7 @@ def open_csv(csv_path):
     return csv_list
 
 
-def test_model(model, test_ds, device, batch_size):
+def test_model(model: type[PianoGPT], test_ds: Type[PianoDataset], device: Type[torch.device], batch_size: int) -> torch.tensor:
     """
     defines accuracy as the proportion of correctly predicted piano roll notes
     predictions are considered incorrect if they extend beyond the ground truth
@@ -272,8 +320,33 @@ def test_model(model, test_ds, device, batch_size):
     return acc
 
 
+def parse_cla():
+    """
+    parses command line arguments
+    """
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-pr_max", type=int, default=204) # maximum value found in the piano roll dataset
+    parser.add_argument("-spec_len", type=int, default=100+1) # length of the audio segments
+    parser.add_argument("-pr_dim", type=int, default=129) # number of features for piano roll (+1 for eos)
+    parser.add_argument("-sg_dim", type=int, default=40) # number of spectrogram features
+    parser.add_argument("-embed_dim", type=int, default=500) # size of the embedding dimension
+    parser.add_argument("-max_gen", type=int, default=256) # max number of tokens generated
+    parser.add_argument("-lr", type=float, default=1e-4) # learning rate
+    parser.add_argument("-bs", type=int, default=32) # batch size
+    parser.add_argument("-patience", type=int, default=5) # number of times to allow for stopping criteria to be met consecutively
+    parser.add_argument("-patience_thresh", type=float, default=0.01) # threshold to consider loss having improved or not
+    parser.add_argument("-output_dir", type=str, default="./model_2_results") # folder to save model checkpoint to
+    parser.add_argument("-num_epochs", type=int, default=1) # number of training iterations
+    parser.add_argument("-n_inner", type=int, default=1024) # dimensionality of feed forward layers in transformer
+    parser.add_argument("-n_layer", type=int, default=5) # number of hidden layers in the transformer
+    parser.add_argument("-n_head", type=int, default=5) # number of attention heads
+    parser.add_argument("-n_positions", type=int, default=256) # maximum sequence length
+    return parser.parse_args()
+
+
 def train(num_epochs, resume_from_checkpoint=None):
     torch.autograd.set_detect_anomaly(True)
+    args = parse_cla()
     device = torch.device("cuda")
 
     train_sg = open_csv("C:\\personal_ML\\music-transcription\\train_sg.csv")
@@ -283,21 +356,32 @@ def train(num_epochs, resume_from_checkpoint=None):
     test_sg = open_csv("C:\\personal_ML\\music-transcription\\test_sg.csv")
     test_pr = open_csv("C:\\personal_ML\\music-transcription\\test_pr.csv")
 
-    train_ds = PianoDataset(device=device, pr_max=204, sg_files=train_sg, pr_files=train_pr)
-    val_ds = PianoDataset(device=device, pr_files=val_pr, sg_files=val_sg, pr_max=204)
-    test_ds = PianoDataset(device=device, pr_files=test_pr, sg_files=test_sg, pr_max=204)
-    model = define_model(spec_len=100+1, pr_dim=128+1, embed_dim=128, sg_dim=40, device=device, max_gen=256).to(device)
+    train_ds = PianoDataset(device=device, pr_max=args.pr_max, sg_files=train_sg, pr_files=train_pr)
+    val_ds = PianoDataset(device=device, pr_files=val_pr, sg_files=val_sg, pr_max=args.pr_max)
+    test_ds = PianoDataset(device=device, pr_files=test_pr, sg_files=test_sg, pr_max=args.pr_max)
+    model = define_model(
+        spec_len=args.spec_len, 
+        pr_dim=args.pr_dim, 
+        embed_dim=args.embed_dim, 
+        sg_dim=args.sg_dim, 
+        device=device, 
+        max_gen=args.max_gen,
+        n_inner=args.n_inner,
+        n_layer=args.n_layer,
+        n_head=args.n_head,
+        n_positions=args.n_positions
+        ).to(device)
 
-    lr = 1e-4
-    batch_size = 180
+    lr = args.lr
+    batch_size = args.bs
 
     early_stopping_callback = EarlyStoppingCallback(
-        patience=5,
-        threshold=0.01
+        patience=args.patience,
+        threshold=args.patience_thresh
     )
 
     training_args = TrainingArguments(
-        output_dir="./results",
+        output_dir=args.output_dir,
         per_device_train_batch_size=batch_size,
         num_train_epochs=num_epochs,
         logging_strategy="epoch",
@@ -326,17 +410,14 @@ def train(num_epochs, resume_from_checkpoint=None):
     if resume_from_checkpoint:
         trainer.train(resume_from_checkpoint=resume_from_checkpoint)
     else:
-        try:
-            trainer.train()
-        except Exception as e:
-            print(e)
+        trainer.train()
 
-    acc = test_model(model=model, test_ds=test_ds, device=device, batch_size=64)
+    acc = test_model(model=model, test_ds=test_ds, device=device, batch_size=batch_size)
     print("accuracy:", acc)
 
 
 def main():
-    train(num_epochs=32)
+    train(num_epochs=1)
 
 
 if __name__ == "__main__":
