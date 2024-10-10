@@ -1,3 +1,4 @@
+from pathlib import Path
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import torch
@@ -5,7 +6,7 @@ import numpy as np
 from transformers import GPT2LMHeadModel, GPT2Config
 import torch.nn as nn
 from typing import Type
-from transformers import GPT2LMHeadModel, GPT2Config, Trainer, TrainingArguments
+from transformers import GPT2LMHeadModel, GPT2Config, Trainer, TrainingArguments, TrainerCallback
 import torch.nn.functional as F
 
 
@@ -26,15 +27,19 @@ class PianoGPT(nn.Module):
         )
         self.embed_dim = embed_dim
         self.device = device
-        self.loss_fn = nn.BCEWithLogitsLoss()
+        self.loss_fn = nn.BCEWithLogitsLoss(reduction='none')
 
         self.gpt.to(device)
         self.pr_embed.to(device)
         self.max_token_gen = max_token_gen
 
         self.eos_token = torch.zeros(pr_dim).to(device)
-        self.eos_token[-1] = 1  
-
+        self.eos_token[-1] = 1
+        
+    def create_padding_mask(self, labels):
+        # creates a mask where -1 values are 0 (ignored) and others are 1
+        return (labels != -1).float()
+    
     def embed_pr(self, x):
         return self.pr_embed(x)
     
@@ -46,17 +51,17 @@ class PianoGPT(nn.Module):
     
     def forward(self, x, labels=None):
         batch_size = x.shape[0]
-
         sg_embedded = self.embed_sg(x)
-        
         input_tokens = sg_embedded
         
         outputs = []
         total_loss = 0.0
+        num_valid_tokens = 0
         finished_sequences = torch.zeros(batch_size, dtype=torch.bool).to(self.device)
 
         if labels is not None:
             seq_length = labels.size(3)
+            padding_mask = self.create_padding_mask(labels)
         else:
             seq_length = self.max_token_gen
 
@@ -64,34 +69,73 @@ class PianoGPT(nn.Module):
             if input_tokens.size(1) > self.gpt.config.n_positions:
                 input_tokens = input_tokens[:, -self.gpt.config.n_positions:, :]
 
-            gpt_output = self.gpt(inputs_embeds=input_tokens).logits
-            next_token_logits = gpt_output[:, -1, :]
+            # create attention mask for GPT to ignore padded tokens
+            attention_mask = None
+            if labels is not None:
+                attention_mask = (input_tokens.sum(dim=-1) != 0).float()
+
+            gpt_output = self.gpt(
+                inputs_embeds=input_tokens,
+                attention_mask=attention_mask
+            ).logits
             
+            next_token_logits = gpt_output[:, -1, :]
             outputs.append(next_token_logits)
 
-            # inference
             if labels is None:
+                # inference mode
                 next_token_preds = (torch.sigmoid(next_token_logits) > 0.5).float()
                 eos_detected = torch.all(torch.abs(next_token_preds - self.eos_token) < 1e-6, dim=1)
                 finished_sequences = finished_sequences | eos_detected
                 if torch.all(finished_sequences):
                     break
-
                 next_token = next_token_preds
             else:
-                # teacher forcing for training
+                # teacher forcing
                 next_token = labels.squeeze(1)[:, :, t]
+                
+                # calculate loss only for non-padded tokens
                 step_loss = self.loss_fn(next_token_logits, next_token)
-                total_loss += step_loss
+                mask = padding_mask.squeeze(1)[:, :, t]
+                masked_loss = step_loss * mask
+                
+                # sum the masked losses and count valid tokens
+                total_loss += masked_loss.sum()
+                num_valid_tokens += mask.sum()
 
-            next_token_embed = self.embed_pr(next_token).unsqueeze(1)  
+            next_token_embed = self.embed_pr(next_token).unsqueeze(1)
             input_tokens = torch.cat([input_tokens, next_token_embed], dim=1)
 
-        outputs = torch.stack(outputs, dim=1)  
+        outputs = torch.stack(outputs, dim=1)
 
         if labels is not None:
-            return total_loss / seq_length, outputs
+            return (total_loss / num_valid_tokens if num_valid_tokens > 0 else total_loss), outputs
         return outputs
+
+
+class EarlyStoppingCallback(TrainerCallback):
+    def __init__(self, patience: int, threshold: float):
+        self.patience = patience
+        self.threshold = threshold
+        self.patience_counter = 0
+        self.best_metric = None
+        
+    def on_evaluate(self, args: TrainingArguments, state, control, metrics, **kwargs):
+        eval_metric = metrics.get("eval_loss")
+        if eval_metric is None:
+            return
+        
+        if self.best_metric is None:
+            self.best_metric = eval_metric
+            return
+        
+        if eval_metric >= (self.best_metric - self.threshold):
+            self.patience_counter += 1
+            if self.patience_counter >= self.patience:
+                control.should_training_stop = True
+        else:
+            self.patience_counter = 0
+            self.best_metric = eval_metric
 
 
 class PianoDataset(torch.utils.data.Dataset):
@@ -139,8 +183,9 @@ def define_model(spec_len: int, pr_dim: int, embed_dim, sg_dim, device, max_gen)
 
 
 def collate_fn(batch):
-    max_sg_len = max([item['x'].shape[2] for item in batch])
     max_pr_len = max([item['label_ids'].shape[2] for item in batch])
+    max_sg_len = max([item['x'].shape[2] for item in batch])
+
 
     sg_padded = []
     pr_padded = []
@@ -151,13 +196,17 @@ def collate_fn(batch):
         
         # pad spectrogram
         pad_len_sg = max_sg_len - sg.shape[2]
-        sg_padded.append(F.pad(sg, (0, pad_len_sg)))
+        sg = F.pad(sg, (0, pad_len_sg), mode="constant", value=-1)
+        sg_padded.append(sg)
         
         # pad piano roll and add eos token
         pad_len_pr = max_pr_len - pr.shape[2]
+
+        eos = torch.nn.functional.one_hot(torch.tensor(128)).unsqueeze(0).unsqueeze(-1)
+
         pr_with_eos = torch.cat([pr, 
-                                torch.zeros(*pr.shape[:2], 1).to(pr.device)], dim=2)
-        pr_with_eos = F.pad(pr_with_eos, (0, pad_len_pr))
+                               eos.to(pr.device)], dim=2)
+        pr_with_eos = F.pad(pr_with_eos, (0, pad_len_pr), mode="constant", value=-1)
         pr_padded.append(pr_with_eos)
     
     sg_batch = torch.stack(sg_padded)
@@ -175,46 +224,52 @@ def open_csv(csv_path):
     return csv_list
 
 
-def calculate_metrics_by_time(model, test_ds, device, batch_size, window_size=50):
-    """Calculate metrics in sliding windows to see how performance changes over time"""
+def prediction_accuracy(model, test_ds, device, batch_size):
+    """
+    defines accuracy as the proportion of correctly predicted piano roll notes
+    predictions are considered incorrect if they extend beyond the ground truth
+    """
     test_dl = DataLoader(test_ds, batch_size=batch_size, collate_fn=collate_fn)
-    metrics_over_time = []
-    
     with torch.no_grad():
-        for output_dict in tqdm(test_dl):
+        acc = 0
+        for i, output_dict in tqdm(enumerate(test_dl)):
             x = output_dict['x'].to(device)
             labels = output_dict["labels"].to(device).squeeze(1)
             
             predictions = model(x).transpose(1, 2)
             predictions = (torch.sigmoid(predictions) > 0.5).float()
-            
-            max_len = max(predictions.shape[2], labels.shape[2])
-            predictions = F.pad(predictions, (0, max_len - predictions.shape[2]))
-            labels = F.pad(labels, (0, max_len - labels.shape[2]))
-            
-            # Calculate metrics for sliding windows
-            for start in range(0, max_len - window_size, window_size // 2):
-                end = start + window_size
-                pred_window = predictions[:, :, start:end]
-                label_window = labels[:, :, start:end]
-                
-                tp = ((pred_window == 1) & (label_window == 1)).sum().item()
-                fp = ((pred_window == 1) & (label_window == 0)).sum().item()
-                fn = ((pred_window == 0) & (label_window == 1)).sum().item()
-                
-                precision = tp / (tp + fp + 1e-8)
-                recall = tp / (tp + fn + 1e-8)
-                f1 = 2 * (precision * recall) / (precision + recall + 1e-8)
-                
-                metrics_over_time.append({
-                    'time_step': start,
-                    'precision': precision,
-                    'recall': recall,
-                    'f1': f1
-                })
-    
-    return metrics_over_time
 
+            if predictions.shape[2] > labels.shape[2]:
+                overlap = predictions[:, :, :labels.shape[2]]
+                incorrect = predictions[:, :, labels.shape[2]:].numel()
+                
+                correct_mask = (overlap == labels)
+                correct = correct_mask.sum()
+
+                incorrect += (correct_mask == 0).sum()
+                acc += correct / (incorrect + correct)
+
+            elif predictions.shape[2] == labels.shape[2]:
+                correct_mask = (predictions == labels)
+                correct = correct_mask.sum()
+
+                incorrect = (correct_mask == 0).sum()
+                acc += correct / (incorrect + correct)
+
+            else:
+                overlap = labels[:, :, :predictions.shape[2]]
+                incorrect = labels[:, :, predictions.shape[2]:].numel()
+
+                correct_mask = (overlap == predictions)
+
+                correct = correct_mask.sum()
+
+                incorrect += (correct_mask == 0).sum()
+                acc += correct / (incorrect + correct)
+
+        acc /= i
+
+    return acc
 
 
 def train(num_epochs, resume_from_checkpoint=None):
@@ -236,19 +291,24 @@ def train(num_epochs, resume_from_checkpoint=None):
     lr = 1e-4
     batch_size = 180
 
+    early_stopping_callback = EarlyStoppingCallback(
+        patience=5,
+        threshold=0.01
+    )
+
     training_args = TrainingArguments(
         output_dir="./results",
         per_device_train_batch_size=batch_size,
         num_train_epochs=num_epochs,
-        logging_dir="C:\\personal_ML\\music-transcription\\logs",
+        logging_strategy="epoch",
+        logging_first_step=False,
         learning_rate=lr,
         optim="adamw_hf",
-        logging_steps=50,
         max_grad_norm=1.0,
         do_eval=True,
         eval_strategy="epoch",
         save_strategy="epoch",
-        save_total_limit=3, 
+        save_total_limit=1, 
         load_best_model_at_end=True, 
         metric_for_best_model="eval_loss",
         save_safetensors=False,      
@@ -260,25 +320,24 @@ def train(num_epochs, resume_from_checkpoint=None):
         args=training_args, 
         train_dataset=train_ds,
         data_collator=collate_fn,
-        eval_dataset=val_ds
+        eval_dataset=val_ds,
+        callbacks=[early_stopping_callback]
     )
     if resume_from_checkpoint:
         trainer.train(resume_from_checkpoint=resume_from_checkpoint)
     else:
-        trainer.train()
+        try:
+            trainer.train()
+        except Exception as e:
+            print(e)
 
-    metrics_over_time = calculate_metrics_by_time(model=model, test_ds=test_ds, device=device, batch_size=64, window_size=10)
-    precision = sum([x["precision"] for x in metrics_over_time])
-    recall = sum([x["recall"] for x in metrics_over_time])
-    f1 = sum([x["f1"] for x in metrics_over_time])
-
-    print("precision", precision)
-    print("recall", recall)
-    print("f1", f1)
+    acc = prediction_accuracy(model=model, test_ds=test_ds, device=device, batch_size=64)
+    print("accuracy:", acc)
 
 
 def main():
-    train(num_epochs=4)
+    train(num_epochs=32)
+
 
 if __name__ == "__main__":
     main()
