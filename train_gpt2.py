@@ -63,7 +63,8 @@ class PianoGPT(nn.Module):
         embed spectrogram [batch, 1, 40, n] -> [batch, embed_dim, n]
         """
         x = x.squeeze(1) 
-        x = x.transpose(1, 2) # transpose so that feature dimenions match along piano roll and spectrogram projections
+        # transpose so that feature dimenions match along piano roll and spectrogram projections
+        x = x.transpose(1, 2) 
         embedded = self.sg_embed(x)
         return embedded
     
@@ -293,16 +294,18 @@ def test_model(model: type[PianoGPT], test_ds: Type[PianoDataset], device: Type[
                 incorrect = predictions[:, :, labels.shape[2]:].numel()
                 
                 correct_mask = (overlap == labels)
+                
                 correct = correct_mask.sum()
-
                 incorrect += (correct_mask == 0).sum()
+                
                 acc += correct / (incorrect + correct)
 
             elif predictions.shape[2] == labels.shape[2]:
                 correct_mask = (predictions == labels)
+                
                 correct = correct_mask.sum()
-
                 incorrect = (correct_mask == 0).sum()
+                
                 acc += correct / (incorrect + correct)
 
             else:
@@ -312,39 +315,12 @@ def test_model(model: type[PianoGPT], test_ds: Type[PianoDataset], device: Type[
                 correct_mask = (overlap == predictions)
 
                 correct = correct_mask.sum()
-
                 incorrect += (correct_mask == 0).sum()
+                
                 acc += correct / (incorrect + correct)
 
         acc /= i
-
     return acc
-
-
-def parse_cla():
-    """
-    parses command line arguments
-    """
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-pr_max", type=int, default=204) # maximum value found in the piano roll dataset
-    parser.add_argument("-spec_len", type=int, default=100+1) # length of the audio segments
-    parser.add_argument("-pr_dim", type=int, default=129) # number of features for piano roll (+1 for eos)
-    parser.add_argument("-sg_dim", type=int, default=40) # number of spectrogram features
-    parser.add_argument("-embed_dim", type=int, default=500) # size of the embedding dimension
-    parser.add_argument("-max_gen", type=int, default=256) # max number of tokens generated
-    parser.add_argument("-lr", type=float, default=1e-4) # learning rate
-    parser.add_argument("-bs", type=int, default=32) # batch size
-    parser.add_argument("-patience", type=int, default=5) # number of times to allow for stopping criteria to be met consecutively
-    parser.add_argument("-patience_thresh", type=float, default=0.01) # threshold to consider loss having improved or not
-    parser.add_argument("-output_dir", type=str, default="./model_2_results") # folder to save model checkpoint to
-    parser.add_argument("-num_epochs", type=int, default=1) # number of training iterations
-    parser.add_argument("-n_inner", type=int, default=1024) # dimensionality of feed forward layers in transformer
-    parser.add_argument("-n_layer", type=int, default=5) # number of hidden layers in the transformer
-    parser.add_argument("-n_head", type=int, default=5) # number of attention heads
-    parser.add_argument("-n_positions", type=int, default=256) # maximum sequence length
-    parser.add_argument("-chkpt_num", type=int, default=None) # number on the checkpoint folder name e.g. checkpoint-100
-    parser.add_argument("-csv_dir", type=Path, default=Path("C:\\personal_ML\\music-transcription\\csv\\")) # folder that contains dataset csvs
-    return parser.parse_args()
 
 
 def train(
@@ -359,6 +335,7 @@ def train(
         val_ds: Type[PianoDataset],
         resume_from_checkpoint=None
         ) -> None:
+    
     early_stopping_callback = EarlyStoppingCallback(
         patience=patience,
         threshold=patience_thresh
@@ -393,6 +370,32 @@ def train(
         trainer.train(resume_from_checkpoint=resume_from_checkpoint)
     else:
         trainer.train()
+
+
+def parse_cla() -> Type[argparse.Namespace]:
+    """
+    parses command line arguments
+    """
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-pr_max", type=int, default=204) # maximum value found in the piano roll dataset
+    parser.add_argument("-spec_len", type=int, default=100+1) # length of the audio segments
+    parser.add_argument("-pr_dim", type=int, default=129) # number of features for piano roll (+1 for eos)
+    parser.add_argument("-sg_dim", type=int, default=40) # number of spectrogram features
+    parser.add_argument("-embed_dim", type=int, default=500) # size of the embedding dimension
+    parser.add_argument("-max_gen", type=int, default=256) # max number of tokens generated
+    parser.add_argument("-lr", type=float, default=1e-4) # learning rate
+    parser.add_argument("-bs", type=int, default=32) # batch size
+    parser.add_argument("-patience", type=int, default=5) # number of times to allow for stopping criteria to be met consecutively
+    parser.add_argument("-patience_thresh", type=float, default=0.01) # threshold to consider loss having improved or not
+    parser.add_argument("-output_dir", type=str, default="./model_2_results") # folder to save model checkpoint to
+    parser.add_argument("-num_epochs", type=int, default=10) # number of training iterations
+    parser.add_argument("-n_inner", type=int, default=1024) # dimensionality of feed forward layers in transformer
+    parser.add_argument("-n_layer", type=int, default=5) # number of hidden layers in the transformer
+    parser.add_argument("-n_head", type=int, default=5) # number of attention heads
+    parser.add_argument("-n_positions", type=int, default=256) # maximum sequence length
+    parser.add_argument("-chkpt_num", type=int, default=None) # number on the checkpoint folder name e.g. checkpoint-100
+    parser.add_argument("-csv_dir", type=Path, default=Path("C:\\personal_ML\\music-transcription\\csv\\")) # folder that contains dataset csvs
+    return parser.parse_args()
 
 
 def main():
