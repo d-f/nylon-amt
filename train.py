@@ -33,7 +33,7 @@ def define_model(
     gpt_model = GPT2LMHeadModel(config)
     gpt_model.resize_token_embeddings(new_num_tokens=pr_dim)
     gpt_model.gradient_checkpointing_enable()
-    piano_gpt = NylonGPT(
+    nylon_gpt = NylonGPT(
         input_dim=spec_len, 
         pr_dim=pr_dim, 
         gpt=gpt_model, 
@@ -43,7 +43,7 @@ def define_model(
         max_token_gen=max_gen
         )
     
-    return piano_gpt
+    return nylon_gpt
 
 
 def train(
