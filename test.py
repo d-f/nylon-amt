@@ -69,19 +69,38 @@ def parse_cla() -> Type[argparse.Namespace]:
     parses command line arguments
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument("-pr_max", type=int, default=204) # maximum value found in the piano roll dataset
-    parser.add_argument("-spec_len", type=int, default=100+1) # length of the audio segments
-    parser.add_argument("-pr_dim", type=int, default=129) # number of features for piano roll (+1 for eos)
-    parser.add_argument("-sg_dim", type=int, default=40) # number of spectrogram features
-    parser.add_argument("-embed_dim", type=int, default=500) # size of the embedding dimension
-    parser.add_argument("-max_gen", type=int, default=256) # max number of tokens generated
-    parser.add_argument("-bs", type=int, default=25) # batch size
-    parser.add_argument("-output_dir", type=str, default="./model_2_results") # folder to save model checkpoint to
-    parser.add_argument("-n_inner", type=int, default=1024) # dimensionality of feed forward layers in transformer
-    parser.add_argument("-n_layer", type=int, default=5) # number of hidden layers in the transformer
-    parser.add_argument("-n_head", type=int, default=5) # number of attention heads
-    parser.add_argument("-n_positions", type=int, default=256) # maximum sequence length
-    parser.add_argument("-csv_dir", type=Path, default=Path("C:\\personal_ML\\nylon_gpt\\dataset_csv\\")) # folder that contains dataset csvs
+    # maximum value found in the piano roll dataset
+    parser.add_argument("-pr_max", type=int, default=204) 
+    # length of the audio segments
+    parser.add_argument("-spec_len", type=int, default=100+1) 
+    # number of features for piano roll (+1 for eos)
+    parser.add_argument("-pr_dim", type=int, default=129)
+    # number of spectrogram features 
+    parser.add_argument("-sg_dim", type=int, default=40) 
+    # size of the embedding dimension
+    parser.add_argument("-embed_dim", type=int, default=500) 
+    # max number of tokens generated
+    parser.add_argument("-max_gen", type=int, default=256) 
+    # batch size
+    parser.add_argument("-bs", type=int, default=25) 
+    # folder to save model checkpoint to
+    parser.add_argument("-output_dir", type=str, default="./model_2_results") 
+    # dimensionality of feed forward layers in transformer
+    parser.add_argument("-n_inner", type=int, default=1024) 
+    # number of hidden layers in the transformer
+    parser.add_argument("-n_layer", type=int, default=5)
+    # number of attention heads 
+    parser.add_argument("-n_head", type=int, default=5) 
+    # maximum sequence length
+    parser.add_argument("-n_positions", type=int, default=256) 
+    # folder that contains dataset csvs
+    parser.add_argument("-csv_dir", type=Path, default=Path("C:\\personal_ML\\nylon_gpt\\dataset_csv\\")) 
+    # folder with model checkpoint
+    parser.add_argument(
+        "-model_dir", 
+        type=Path, 
+        default=Path("C:\\personal_ML\\nylon_gpt\\training_results\\model_2_results\\checkpoint-3171\\")
+        )
     return parser.parse_args()
 
 
@@ -105,7 +124,7 @@ def main():
         n_positions=args.n_positions
         ).to(device)
 
-    load_model(model=model, checkpoint_path="C:\\personal_ML\\nylon_gpt\\training_results\\model_2_results\\checkpoint-3171\\pytorch_model.bin")
+    load_model(model=model, checkpoint_path=args.model_dir.joinpath("pytorch_model.bin"))
 
     acc = test_model(model=model, test_ds=test_ds, device=device, batch_size=args.bs)
     print("accuracy:", acc)
