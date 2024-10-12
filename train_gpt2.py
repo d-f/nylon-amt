@@ -384,7 +384,7 @@ def parse_cla() -> Type[argparse.Namespace]:
     parser.add_argument("-embed_dim", type=int, default=500) # size of the embedding dimension
     parser.add_argument("-max_gen", type=int, default=256) # max number of tokens generated
     parser.add_argument("-lr", type=float, default=1e-4) # learning rate
-    parser.add_argument("-bs", type=int, default=32) # batch size
+    parser.add_argument("-bs", type=int, default=25) # batch size
     parser.add_argument("-patience", type=int, default=5) # number of times to allow for stopping criteria to be met consecutively
     parser.add_argument("-patience_thresh", type=float, default=0.01) # threshold to consider loss having improved or not
     parser.add_argument("-output_dir", type=str, default="./model_2_results") # folder to save model checkpoint to
@@ -422,7 +422,7 @@ def main():
         n_layer=args.n_layer,
         n_head=args.n_head,
         n_positions=args.n_positions
-        ).to(device)
+        )
 
     if args.chkpt_num:
         train(
