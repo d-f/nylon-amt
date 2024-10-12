@@ -4,8 +4,6 @@ import matplotlib.pyplot as plt
 import torch
 import torchaudio
 import librosa
-import librosa
-import matplotlib.pyplot as plt
 import argparse
 from pathlib import Path
 import numpy as np
@@ -108,13 +106,6 @@ def norm_sg(spectrogram: np.array) -> np.array:
     """
     s_db = (spectrogram - spectrogram.min()) / (spectrogram.max() - spectrogram.min())
     return s_db
-
-
-def norm_midi_pitch(midi_pitches):
-    """
-    normalizes midi pitch values
-    """
-    return midi_pitches / 127
 
 
 def save_array(arr: np.array, save_fp: str) -> None:
