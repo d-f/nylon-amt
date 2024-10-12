@@ -42,12 +42,12 @@ def main():
     file_dir=Path("C:\\personal_ML\\music-transcription\\save\\")
     sg_files = [x for x in file_dir.iterdir() if "spec" in str(x)]
     val_sg, val_pr, test_sg, test_pr, train_sg, train_pr = partition_datasets(sg_files=sg_files, val_prop=0.1)
-    save_csv(csv_list=val_sg, csv_path=Path("C:\\personal_ML\\music-transcription\\val_sg.csv"))
-    save_csv(csv_list=val_pr, csv_path=Path("C:\\personal_ML\\music-transcription\\val_pr.csv"))
-    save_csv(csv_list=test_sg, csv_path=Path("C:\\personal_ML\\music-transcription\\test_sg.csv"))
-    save_csv(csv_list=test_pr, csv_path=Path("C:\\personal_ML\\music-transcription\\test_pr.csv"))
-    save_csv(csv_list=train_sg, csv_path=Path("C:\\personal_ML\\music-transcription\\train_sg.csv"))
-    save_csv(csv_list=train_pr, csv_path=Path("C:\\personal_ML\\music-transcription\\train_pr.csv"))
+    save_csv(csv_list=val_sg, csv_path=Path("C:\\personal_ML\\nylon_gpt\\dataset_csv\\val_sg.csv"))
+    save_csv(csv_list=val_pr, csv_path=Path("C:\\personal_ML\\nylon_gpt\\dataset_csv\\val_pr.csv"))
+    save_csv(csv_list=test_sg, csv_path=Path("C:\\personal_ML\\nylon_gpt\\dataset_csv\\test_sg.csv"))
+    save_csv(csv_list=test_pr, csv_path=Path("C:\\personal_ML\\nylon_gpt\\dataset_csv\\test_pr.csv"))
+    save_csv(csv_list=train_sg, csv_path=Path("C:\\personal_ML\\nylon_gpt\\dataset_csv\\train_sg.csv"))
+    save_csv(csv_list=train_pr, csv_path=Path("C:\\personal_ML\\nylon_gpt\\dataset_csv\\train_pr.csv"))
 
 
 
