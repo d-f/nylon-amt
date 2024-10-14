@@ -101,22 +101,21 @@ def parse_cla() -> Type[argparse.Namespace]:
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("-pr_max", type=int, default=204) # maximum value found in the piano roll dataset
-    parser.add_argument("-spec_len", type=int, default=100+1) # length of the audio segments
+    parser.add_argument("-spec_len", type=int, default=256) # length of the audio segments
     parser.add_argument("-pr_dim", type=int, default=129) # number of features for piano roll (+1 for eos)
     parser.add_argument("-sg_dim", type=int, default=40) # number of spectrogram features
-    parser.add_argument("-embed_dim", type=int, default=500) # size of the embedding dimension
-    parser.add_argument("-max_gen", type=int, default=256) # max number of tokens generated
+    parser.add_argument("-embed_dim", type=int, default=128) # size of the embedding dimension
     parser.add_argument("-lr", type=float, default=1e-4) # learning rate
-    parser.add_argument("-bs", type=int, default=25) # batch size
+    parser.add_argument("-bs", type=int, default=40) # batch size
     parser.add_argument("-patience", type=int, default=5) # number of times to allow for stopping criteria to be met consecutively
     parser.add_argument("-patience_thresh", type=float, default=0.01) # threshold to consider loss having improved or not
-    parser.add_argument("-output_dir", type=str, default="C:\\personal_ML\\nylon_gpt\\training_results\\model_2_results") # folder to save model checkpoint to
-    parser.add_argument("-num_epochs", type=int, default=10) # number of training iterations
-    parser.add_argument("-n_inner", type=int, default=1024) # dimensionality of feed forward layers in transformer
-    parser.add_argument("-n_layer", type=int, default=5) # number of hidden layers in the transformer
-    parser.add_argument("-n_head", type=int, default=5) # number of attention heads
-    parser.add_argument("-n_positions", type=int, default=256) # maximum sequence length
-    parser.add_argument("-chkpt_num", type=int, default=2718) # number on the checkpoint folder name e.g. checkpoint-100
+    parser.add_argument("-output_dir", type=str, default="C:\\personal_ML\\nylon_gpt\\training_results\\model_3_results") # folder to save model checkpoint to
+    parser.add_argument("-num_epochs", type=int, default=2) # number of training iterations
+    parser.add_argument("-n_inner", type=int, default=128) # dimensionality of feed forward layers in transformer
+    parser.add_argument("-n_layer", type=int, default=1) # number of hidden layers in the transformer
+    parser.add_argument("-n_head", type=int, default=2) # number of attention heads
+    parser.add_argument("-n_positions", type=int, default=350) # maximum generated sequence length
+    parser.add_argument("-chkpt_num", type=int, default=None) # number on the checkpoint folder name e.g. checkpoint-100
     parser.add_argument("-csv_dir", type=Path, default=Path("C:\\personal_ML\\nylon_gpt\\dataset_csv\\")) # folder that contains dataset csvs
     return parser.parse_args()
 
@@ -137,7 +136,7 @@ def main():
         embed_dim=args.embed_dim, 
         sg_dim=args.sg_dim, 
         device=device, 
-        max_gen=args.max_gen,
+        max_gen=args.n_positions,
         n_inner=args.n_inner,
         n_layer=args.n_layer,
         n_head=args.n_head,
