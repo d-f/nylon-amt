@@ -96,6 +96,7 @@ def train(
         push_to_hub=False,  
         bf16=True, 
         weight_decay=0.01,
+        lr_scheduler_type="linear",
     )
     trainer = Trainer(
         model=model,
@@ -105,17 +106,6 @@ def train(
         eval_dataset=val_ds,
         callbacks=[early_stopping_callback]
     )
-
-    num_training_steps = len(train_ds) * training_args.num_train_epochs // training_args.per_device_train_batch_size
-    num_warmup_steps = int(0.1 * num_training_steps)  
-
-    scheduler = get_linear_schedule_with_warmup(
-    optimizer=trainer.optimizer,
-    num_warmup_steps=num_warmup_steps,
-    num_training_steps=num_training_steps
-    )
-
-    trainer.lr_scheduler = scheduler
 
     if resume_from_checkpoint:
         trainer.train(resume_from_checkpoint=resume_from_checkpoint)
