@@ -43,7 +43,7 @@ def define_model(
         lora_dropout=0.1
     )
 
-    # Get the PEFT model
+    # convert model into peft model
     peft_model = get_peft_model(gpt_model, peft_config)
 
     nylon_gpt = NylonGPT(
@@ -123,24 +123,28 @@ def parse_cla() -> Type[argparse.Namespace]:
     parser.add_argument("-bs", type=int, default=100) # batch size
     parser.add_argument("-patience", type=int, default=5) # number of times to allow for stopping criteria to be met consecutively
     parser.add_argument("-patience_thresh", type=float, default=0.01) # threshold to consider loss having improved or not
-    parser.add_argument("-output_dir", type=str, default="C:\\personal_ML\\nylon_gpt\\training_results\\model_3_results") # folder to save model checkpoint to
-    parser.add_argument("-num_epochs", type=int, default=10) # number of training iterations
+    parser.add_argument("-output_dir", type=str, default="C:\\personal_ML\\nylon_gpt\\training_results\\model_1") # folder to save model checkpoint to
+    parser.add_argument("-num_epochs", type=int, default=50) # number of training iterations
     parser.add_argument("-n_inner", type=int, default=512) # dimensionality of feed forward layers in transformer
-    parser.add_argument("-n_layer", type=int, default=5) # number of hidden layers in the transformer
-    parser.add_argument("-n_head", type=int, default=5) # number of attention heads
+    parser.add_argument("-n_layer", type=int, default=4) # number of hidden layers in the transformer
+    parser.add_argument("-n_head", type=int, default=4) # number of attention heads
     parser.add_argument("-n_positions", type=int, default=150) # maximum generated sequence length
-    parser.add_argument("-chkpt_num", type=int, default=736) # number on the checkpoint folder name e.g. checkpoint-100
+    parser.add_argument("-chkpt_num", type=int, default=None) # number on the checkpoint folder name e.g. checkpoint-100
     parser.add_argument("-csv_dir", type=Path, default=Path("C:\\personal_ML\\nylon_gpt\\dataset_csv\\")) # folder that contains dataset csvs
+    # size of each step when stepping through the dataset, e.g. 0 uses the entire dataset, 2 uses half the dataset, 
+    # used in order to use subsets of the dataset when initially tuning hyperparameters
+    parser.add_argument("-ds_subset_interval", type=int, default=50) 
+    
     return parser.parse_args()
 
 
 def main():
     args = parse_cla()
     device = torch.device("cuda")
-    train_sg = open_csv(args.csv_dir.joinpath("train_sg.csv"))[::50]
-    train_pr = open_csv(args.csv_dir.joinpath("train_pr.csv"))[::50]
-    val_sg = open_csv(args.csv_dir.joinpath("val_sg.csv"))[::50]
-    val_pr = open_csv(args.csv_dir.joinpath("val_pr.csv"))[::50]
+    train_sg = open_csv(args.csv_dir.joinpath("train_sg.csv"))[::args.ds_subset_interval]
+    train_pr = open_csv(args.csv_dir.joinpath("train_pr.csv"))[::args.ds_subset_interval]
+    val_sg = open_csv(args.csv_dir.joinpath("val_sg.csv"))[::args.ds_subset_interval]
+    val_pr = open_csv(args.csv_dir.joinpath("val_pr.csv"))[::args.ds_subset_interval]
 
     train_ds = PianoRollDataset(device=device, pr_max=args.pr_max, sg_files=train_sg, pr_files=train_pr)
     val_ds = PianoRollDataset(device=device, pr_files=val_pr, sg_files=val_sg, pr_max=args.pr_max)
