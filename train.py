@@ -1,4 +1,4 @@
-import random
+from transformers import get_linear_schedule_with_warmup
 from peft import get_peft_model, LoraConfig, TaskType
 from pathlib import Path
 import argparse
@@ -95,6 +95,7 @@ def train(
         save_safetensors=False,      
         push_to_hub=False,  
         bf16=True, 
+        weight_decay=0.01,
     )
     trainer = Trainer(
         model=model,
@@ -104,6 +105,18 @@ def train(
         eval_dataset=val_ds,
         callbacks=[early_stopping_callback]
     )
+
+    num_training_steps = len(train_ds) * training_args.num_train_epochs // training_args.per_device_train_batch_size
+    num_warmup_steps = int(0.1 * num_training_steps)  
+
+    scheduler = get_linear_schedule_with_warmup(
+    optimizer=trainer.optimizer,
+    num_warmup_steps=num_warmup_steps,
+    num_training_steps=num_training_steps
+    )
+
+    trainer.lr_scheduler = scheduler
+
     if resume_from_checkpoint:
         trainer.train(resume_from_checkpoint=resume_from_checkpoint)
     else:
@@ -167,8 +180,6 @@ def main():
             val_pr=val_pr, 
             ds_prop=args.ds_prop
         )
-
-
 
     train_ds = PianoRollDataset(device=device, pr_max=args.pr_max, sg_files=train_sg, pr_files=train_pr)
     val_ds = PianoRollDataset(device=device, pr_files=val_pr, sg_files=val_sg, pr_max=args.pr_max)
