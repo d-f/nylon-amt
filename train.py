@@ -1,3 +1,4 @@
+from peft import get_peft_model, LoraConfig, TaskType
 from pathlib import Path
 import argparse
 import torch
@@ -33,10 +34,22 @@ def define_model(
     gpt_model = GPT2LMHeadModel(config)
     gpt_model.resize_token_embeddings(new_num_tokens=pr_dim)
     gpt_model.gradient_checkpointing_enable()
+
+    peft_config = LoraConfig(
+        task_type=TaskType.CAUSAL_LM,
+        inference_mode=False,
+        r=8,
+        lora_alpha=32,
+        lora_dropout=0.1
+    )
+
+    # Get the PEFT model
+    peft_model = get_peft_model(gpt_model, peft_config)
+
     nylon_gpt = NylonGPT(
         input_dim=spec_len, 
         pr_dim=pr_dim, 
-        gpt=gpt_model, 
+        gpt=peft_model, 
         embed_dim=embed_dim, 
         sg_dim=sg_dim, 
         device=device, 
@@ -79,7 +92,8 @@ def train(
         load_best_model_at_end=True, 
         metric_for_best_model="eval_loss",
         save_safetensors=False,      
-        push_to_hub=False,        
+        push_to_hub=False,  
+        bf16=True, 
     )
     trainer = Trainer(
         model=model,
@@ -101,21 +115,21 @@ def parse_cla() -> Type[argparse.Namespace]:
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("-pr_max", type=int, default=204) # maximum value found in the piano roll dataset
-    parser.add_argument("-spec_len", type=int, default=256) # length of the audio segments
+    parser.add_argument("-spec_len", type=int, default=100) # length of the audio segments
     parser.add_argument("-pr_dim", type=int, default=129) # number of features for piano roll (+1 for eos)
     parser.add_argument("-sg_dim", type=int, default=40) # number of spectrogram features
-    parser.add_argument("-embed_dim", type=int, default=128) # size of the embedding dimension
+    parser.add_argument("-embed_dim", type=int, default=200) # size of the embedding dimension
     parser.add_argument("-lr", type=float, default=1e-4) # learning rate
-    parser.add_argument("-bs", type=int, default=40) # batch size
+    parser.add_argument("-bs", type=int, default=100) # batch size
     parser.add_argument("-patience", type=int, default=5) # number of times to allow for stopping criteria to be met consecutively
     parser.add_argument("-patience_thresh", type=float, default=0.01) # threshold to consider loss having improved or not
     parser.add_argument("-output_dir", type=str, default="C:\\personal_ML\\nylon_gpt\\training_results\\model_3_results") # folder to save model checkpoint to
-    parser.add_argument("-num_epochs", type=int, default=2) # number of training iterations
-    parser.add_argument("-n_inner", type=int, default=128) # dimensionality of feed forward layers in transformer
-    parser.add_argument("-n_layer", type=int, default=1) # number of hidden layers in the transformer
-    parser.add_argument("-n_head", type=int, default=2) # number of attention heads
-    parser.add_argument("-n_positions", type=int, default=350) # maximum generated sequence length
-    parser.add_argument("-chkpt_num", type=int, default=None) # number on the checkpoint folder name e.g. checkpoint-100
+    parser.add_argument("-num_epochs", type=int, default=10) # number of training iterations
+    parser.add_argument("-n_inner", type=int, default=512) # dimensionality of feed forward layers in transformer
+    parser.add_argument("-n_layer", type=int, default=5) # number of hidden layers in the transformer
+    parser.add_argument("-n_head", type=int, default=5) # number of attention heads
+    parser.add_argument("-n_positions", type=int, default=150) # maximum generated sequence length
+    parser.add_argument("-chkpt_num", type=int, default=736) # number on the checkpoint folder name e.g. checkpoint-100
     parser.add_argument("-csv_dir", type=Path, default=Path("C:\\personal_ML\\nylon_gpt\\dataset_csv\\")) # folder that contains dataset csvs
     return parser.parse_args()
 
@@ -123,10 +137,10 @@ def parse_cla() -> Type[argparse.Namespace]:
 def main():
     args = parse_cla()
     device = torch.device("cuda")
-    train_sg = open_csv(args.csv_dir.joinpath("train_sg.csv"))
-    train_pr = open_csv(args.csv_dir.joinpath("train_pr.csv"))
-    val_sg = open_csv(args.csv_dir.joinpath("val_sg.csv"))
-    val_pr = open_csv(args.csv_dir.joinpath("val_pr.csv"))
+    train_sg = open_csv(args.csv_dir.joinpath("train_sg.csv"))[::50]
+    train_pr = open_csv(args.csv_dir.joinpath("train_pr.csv"))[::50]
+    val_sg = open_csv(args.csv_dir.joinpath("val_sg.csv"))[::50]
+    val_pr = open_csv(args.csv_dir.joinpath("val_pr.csv"))[::50]
 
     train_ds = PianoRollDataset(device=device, pr_max=args.pr_max, sg_files=train_sg, pr_files=train_pr)
     val_ds = PianoRollDataset(device=device, pr_files=val_pr, sg_files=val_sg, pr_max=args.pr_max)
