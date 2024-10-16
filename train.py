@@ -1,3 +1,4 @@
+import random
 from peft import get_peft_model, LoraConfig, TaskType
 from pathlib import Path
 import argparse
@@ -131,26 +132,43 @@ def parse_cla() -> Type[argparse.Namespace]:
     parser.add_argument("-n_positions", type=int, default=150) # maximum generated sequence length
     parser.add_argument("-chkpt_num", type=int, default=None) # number on the checkpoint folder name e.g. checkpoint-100
     parser.add_argument("-csv_dir", type=Path, default=Path("C:\\personal_ML\\nylon_gpt\\dataset_csv\\")) # folder that contains dataset csvs
-    # size of each step when stepping through the dataset, e.g. 0 uses the entire dataset, 2 uses half the dataset, 
-    # used in order to use subsets of the dataset when initially tuning hyperparameters
-    parser.add_argument("-ds_subset_interval", type=int, default=50) 
+    parser.add_argument("-ds_prop", type=float, default=0.02) # proportion of the dataset to use
     
     return parser.parse_args()
+
+
+def reduce_ds_size(train_sg, train_pr, val_sg, val_pr, ds_prop):
+
+    train_amt = int(len(train_sg) * ds_prop)
+    val_amt = int(len(val_sg) * ds_prop)
+
+    train_sg = train_sg[:train_amt]
+    train_pr = train_pr[:train_amt]
+
+    val_sg = val_sg[:val_amt]
+    val_pr = val_pr[:val_amt]
+
+    return train_sg, train_pr, val_sg, val_pr
 
 
 def main():
     args = parse_cla()
     device = torch.device("cuda")
-    if args.ds_subset_interval > 0:
-        train_sg = open_csv(args.csv_dir.joinpath("train_sg.csv"))[::args.ds_subset_interval]
-        train_pr = open_csv(args.csv_dir.joinpath("train_pr.csv"))[::args.ds_subset_interval]
-        val_sg = open_csv(args.csv_dir.joinpath("val_sg.csv"))[::args.ds_subset_interval]
-        val_pr = open_csv(args.csv_dir.joinpath("val_pr.csv"))[::args.ds_subset_interval]
-    else:
-        train_sg = open_csv(args.csv_dir.joinpath("train_sg.csv"))
-        train_pr = open_csv(args.csv_dir.joinpath("train_pr.csv"))
-        val_sg = open_csv(args.csv_dir.joinpath("val_sg.csv"))
-        val_pr = open_csv(args.csv_dir.joinpath("val_pr.csv"))
+    train_sg = open_csv(args.csv_dir.joinpath("train_sg.csv"))
+    train_pr = open_csv(args.csv_dir.joinpath("train_pr.csv"))
+    val_sg = open_csv(args.csv_dir.joinpath("val_sg.csv"))
+    val_pr = open_csv(args.csv_dir.joinpath("val_pr.csv"))
+
+    if args.ds_prop < 1.0:
+        train_sg, train_pr, val_sg, val_pr = reduce_ds_size(
+            train_sg=train_sg, 
+            train_pr=train_pr, 
+            val_sg=val_sg, 
+            val_pr=val_pr, 
+            ds_prop=args.ds_prop
+        )
+
+
 
     train_ds = PianoRollDataset(device=device, pr_max=args.pr_max, sg_files=train_sg, pr_files=train_pr)
     val_ds = PianoRollDataset(device=device, pr_files=val_pr, sg_files=val_sg, pr_max=args.pr_max)
