@@ -141,10 +141,16 @@ def parse_cla() -> Type[argparse.Namespace]:
 def main():
     args = parse_cla()
     device = torch.device("cuda")
-    train_sg = open_csv(args.csv_dir.joinpath("train_sg.csv"))[::args.ds_subset_interval]
-    train_pr = open_csv(args.csv_dir.joinpath("train_pr.csv"))[::args.ds_subset_interval]
-    val_sg = open_csv(args.csv_dir.joinpath("val_sg.csv"))[::args.ds_subset_interval]
-    val_pr = open_csv(args.csv_dir.joinpath("val_pr.csv"))[::args.ds_subset_interval]
+    if args.ds_subset_interval > 0:
+        train_sg = open_csv(args.csv_dir.joinpath("train_sg.csv"))[::args.ds_subset_interval]
+        train_pr = open_csv(args.csv_dir.joinpath("train_pr.csv"))[::args.ds_subset_interval]
+        val_sg = open_csv(args.csv_dir.joinpath("val_sg.csv"))[::args.ds_subset_interval]
+        val_pr = open_csv(args.csv_dir.joinpath("val_pr.csv"))[::args.ds_subset_interval]
+    else:
+        train_sg = open_csv(args.csv_dir.joinpath("train_sg.csv"))
+        train_pr = open_csv(args.csv_dir.joinpath("train_pr.csv"))
+        val_sg = open_csv(args.csv_dir.joinpath("val_sg.csv"))
+        val_pr = open_csv(args.csv_dir.joinpath("val_pr.csv"))
 
     train_ds = PianoRollDataset(device=device, pr_max=args.pr_max, sg_files=train_sg, pr_files=train_pr)
     val_ds = PianoRollDataset(device=device, pr_files=val_pr, sg_files=val_sg, pr_max=args.pr_max)
