@@ -1,4 +1,3 @@
-from transformers import get_linear_schedule_with_warmup
 from peft import get_peft_model, LoraConfig, TaskType
 from pathlib import Path
 import argparse
@@ -127,15 +126,15 @@ def parse_cla() -> Type[argparse.Namespace]:
     parser.add_argument("-bs", type=int, default=100) # batch size
     parser.add_argument("-patience", type=int, default=5) # number of times to allow for stopping criteria to be met consecutively
     parser.add_argument("-patience_thresh", type=float, default=0.01) # threshold to consider loss having improved or not
-    parser.add_argument("-output_dir", type=str, default="C:\\personal_ML\\nylon_gpt\\training_results\\model_1") # folder to save model checkpoint to
-    parser.add_argument("-num_epochs", type=int, default=50) # number of training iterations
+    parser.add_argument("-output_dir", type=str, default="C:\\personal_ML\\nylon_gpt\\training_results\\model_3") # folder to save model checkpoint to
+    parser.add_argument("-num_epochs", type=int, default=1) # number of training iterations
     parser.add_argument("-n_inner", type=int, default=512) # dimensionality of feed forward layers in transformer
     parser.add_argument("-n_layer", type=int, default=4) # number of hidden layers in the transformer
     parser.add_argument("-n_head", type=int, default=4) # number of attention heads
     parser.add_argument("-n_positions", type=int, default=150) # maximum generated sequence length
     parser.add_argument("-chkpt_num", type=int, default=None) # number on the checkpoint folder name e.g. checkpoint-100
     parser.add_argument("-csv_dir", type=Path, default=Path("C:\\personal_ML\\nylon_gpt\\dataset_csv\\")) # folder that contains dataset csvs
-    parser.add_argument("-ds_prop", type=float, default=0.02) # proportion of the dataset to use
+    parser.add_argument("-ds_prop", type=float, default=0.50) # proportion of the dataset to use
     
     return parser.parse_args()
 
