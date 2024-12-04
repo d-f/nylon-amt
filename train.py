@@ -1,3 +1,4 @@
+import random
 from peft import get_peft_model, LoraConfig, TaskType
 from pathlib import Path
 import argparse
@@ -139,16 +140,25 @@ def parse_cla() -> Type[argparse.Namespace]:
     return parser.parse_args()
 
 
+def match_pr(sg):
+    """
+    retrieves the matching pr file for a given sg file path
+    """
+    file_pattern = sg.rpartition("\\")[2].replace("-piano.npy", "")
+    return sg.replace(f"{file_pattern}-piano.npy", f"{file_pattern}-sg.npy")
+
+
+
 def reduce_ds_size(train_sg, train_pr, val_sg, val_pr, ds_prop):
 
     train_amt = int(len(train_sg) * ds_prop)
     val_amt = int(len(val_sg) * ds_prop)
 
-    train_sg = train_sg[:train_amt]
-    train_pr = train_pr[:train_amt]
+    train_sg = random.sample(train_sg, k=train_amt)
+    val_sg = random.sample(val_sg, k=val_amt)
 
-    val_sg = val_sg[:val_amt]
-    val_pr = val_pr[:val_amt]
+    train_pr = [match_pr(x) for x in train_sg]
+    val_pr = [match_pr(x) for x in val_sg]
 
     return train_sg, train_pr, val_sg, val_pr
 
