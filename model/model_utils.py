@@ -1,5 +1,6 @@
+
 from typing import Type, Dict
-from transformers import TrainingArguments, TrainerState, TrainerControl, TrainerCallback
+from transformers import TrainingArguments, TrainerState, TrainerControl, TrainerCallback, GPT2LMHeadModel
 
 
 class EarlyStoppingCallback(TrainerCallback):
@@ -32,3 +33,28 @@ class EarlyStoppingCallback(TrainerCallback):
         else:
             self.patience_counter = 0
             self.best_metric = eval_metric
+
+
+def model_summary(model: Type[GPT2LMHeadModel]) -> None:
+    trainable = 0
+    frozen = 0
+    for param in model.parameters():
+        num_params = 1
+        for param_dim in param.shape:
+            num_params *= param_dim
+        if param.requires_grad:
+            trainable += num_params
+        else:
+            frozen += num_params
+
+    print(f"Number of trainable parameters: {trainable}")
+    print(f"Number of non-trainable parameters: {frozen}")
+
+
+def enable_all_parameters(model: Type[GPT2LMHeadModel]) -> None:
+    """
+    enables all parameters in a model to be adjusted during training
+    """
+    for param in model.parameters():
+        param.requires_grad = True
+    
