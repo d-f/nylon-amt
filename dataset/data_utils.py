@@ -1,3 +1,4 @@
+import random
 from typing import Dict, List
 import numpy as np
 import torch
@@ -28,6 +29,30 @@ class PianoRollDataset(torch.utils.data.Dataset):
         pr_tensor /= self.pr_max
         
         return {"x": sg_tensor, "label_ids": pr_tensor}
+
+
+def match_pr(sg):
+    """
+    retrieves the matching pr file for a given spec file path
+    """
+    file_pattern = sg.rpartition("\\")[2].replace("-spec.npy", "")
+    return sg.replace(f"{file_pattern}-spec.npy", f"{file_pattern}-piano.npy")
+
+
+def reduce_ds_size(train_sg, train_pr, val_sg, val_pr, ds_prop):
+    """
+    reduces dataset size by ds_prop with random selection
+    """
+    train_amt = int(len(train_sg) * ds_prop)
+    val_amt = int(len(val_sg) * ds_prop)
+
+    train_sg = random.sample(train_sg, k=train_amt)
+    val_sg = random.sample(val_sg, k=val_amt)
+
+    train_pr = [match_pr(x) for x in train_sg]
+    val_pr = [match_pr(x) for x in val_sg]
+
+    return train_sg, train_pr, val_sg, val_pr
 
 
 def collate_fn(batch: Dict) -> Dict:
