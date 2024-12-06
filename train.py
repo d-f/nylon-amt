@@ -1,4 +1,3 @@
-import random
 from peft import get_peft_model, LoraConfig, TaskType
 from pathlib import Path
 import argparse
@@ -8,7 +7,7 @@ from typing import Type
 from transformers import GPT2LMHeadModel, GPT2Config, Trainer, TrainingArguments
 from model.nylon_gpt import NylonGPT
 from model.model_utils import EarlyStoppingCallback, model_summary, enable_all_parameters
-from dataset.data_utils import PianoRollDataset, collate_fn, open_csv
+from dataset.data_utils import PianoRollDataset, collate_fn, open_csv, reduce_ds_size
 
 
 def define_model(
@@ -138,29 +137,6 @@ def parse_cla() -> Type[argparse.Namespace]:
     parser.add_argument("-ds_prop", type=float, default=0.01) # proportion of the dataset to use
     
     return parser.parse_args()
-
-
-def match_pr(sg):
-    """
-    retrieves the matching pr file for a given spec file path
-    """
-    file_pattern = sg.rpartition("\\")[2].replace("-spec.npy", "")
-    return sg.replace(f"{file_pattern}-spec.npy", f"{file_pattern}-piano.npy")
-
-
-
-def reduce_ds_size(train_sg, train_pr, val_sg, val_pr, ds_prop):
-
-    train_amt = int(len(train_sg) * ds_prop)
-    val_amt = int(len(val_sg) * ds_prop)
-
-    train_sg = random.sample(train_sg, k=train_amt)
-    val_sg = random.sample(val_sg, k=val_amt)
-
-    train_pr = [match_pr(x) for x in train_sg]
-    val_pr = [match_pr(x) for x in val_sg]
-
-    return train_sg, train_pr, val_sg, val_pr
 
 
 def main():
