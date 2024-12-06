@@ -142,10 +142,10 @@ def parse_cla() -> Type[argparse.Namespace]:
 
 def match_pr(sg):
     """
-    retrieves the matching pr file for a given sg file path
+    retrieves the matching pr file for a given spec file path
     """
-    file_pattern = sg.rpartition("\\")[2].replace("-piano.npy", "")
-    return sg.replace(f"{file_pattern}-piano.npy", f"{file_pattern}-sg.npy")
+    file_pattern = sg.rpartition("\\")[2].replace("-spec.npy", "")
+    return sg.replace(f"{file_pattern}-spec.npy", f"{file_pattern}-piano.npy")
 
 
 
