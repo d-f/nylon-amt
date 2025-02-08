@@ -20,7 +20,7 @@ import train
 import dataset
 sys.path.append(os.getcwd())
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from model.ref_model_spec2midi import Encoder_SPEC2MIDI, Decoder_SPEC2MIDI, Model_SPEC2MIDI, SimplifiedTranscriptionModel
+from model.model_spec2midi import Encoder_SPEC2MIDI, Decoder_SPEC2MIDI, Model_SPEC2MIDI
 
 ## model functions
 def count_parameters(model):
@@ -134,7 +134,7 @@ if __name__ == '__main__':
                                 args.dropout,
                                 device)
     model = Model_SPEC2MIDI(encoder, decoder)
-    # model = SimplifiedTranscriptionModel(input_dims=[1, 88])
+
     model = model.to(device)
     model.apply(initialize_weights)
     print(' The model has {} trainable parameters'.format(count_parameters(model)))
