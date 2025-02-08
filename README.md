@@ -5,4 +5,8 @@ This project makes use of hierarchical frequency time transformers in order to t
 First, a model is trained to transcribe solo piano recital pieces using the MAESTRO dataset
 which can be found here: [https://magenta.tensorflow.org/datasets/maestro](https://magenta.tensorflow.org/datasets/maestro) This dataset includes paired audio and midi files that are aligned within 3ms. There are data for 10 years of international competitive piano recitals created by recording MIDI alongside audio at the time of the performance.
 
+dataset_creation.py was used in order to format the MAESTRO dataset in the expected way. The HFTT github was used with very minor adjustments, e.g. adjusting the total number of iterations in a tqdm progress bar
+
+m_training.py was used in order to train the model, with example usage in the file /evaluation/EXE-EVALUATION-MAESTRO.sh
+
 [Alphatab](https://github.com/CoderLine/alphaTab) will be used for tab visualization.
