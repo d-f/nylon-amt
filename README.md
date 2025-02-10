@@ -6,8 +6,12 @@ which can be found here: [https://magenta.tensorflow.org/datasets/maestro](https
 dataset_creation.py was used in order to format the MAESTRO dataset in the expected way. The HFTT github was used with very minor adjustments
 
 Changes to the HFTT repo:
-- m_training.py changing device to torch.device("cuda") compared to just "cuda" on line 111
-- train.py changing the total to be the length of the iterator rather than a fixed value in the tqdm progress bar on line 16.
+- m_training.py
+  - changing device to torch.device("cuda") compared to just "cuda" on line 111
+  - moving testing to end of training
+- train.py
+  - changing the total to be the length of the iterator rather than a fixed value in the tqdm progress bar on line 16.
+  -  measure precision, recall and f1 on test set with mir_eval
 
 m_training.py was used in order to train the model, with example usage in the file /evaluation/EXE-EVALUATION-MAESTRO.sh
 
