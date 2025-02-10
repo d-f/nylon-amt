@@ -14,11 +14,13 @@ import torch.optim as optim
 
 import pickle
 import json
-import datetime
+import datetime 
 
 import train
 import dataset
 sys.path.append(os.getcwd())
+
+from tqdm import tqdm
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from model.model_spec2midi import Encoder_SPEC2MIDI, Decoder_SPEC2MIDI, Model_SPEC2MIDI
 
@@ -40,26 +42,26 @@ if __name__ == '__main__':
     parser.add_argument('-n_div_train', help='num of train dataset division(1)', type=int, default=1)
     parser.add_argument('-n_div_valid', help='num of valid dataset division(1)', type=int, default=1)
     parser.add_argument('-n_div_test', help='num of test dataset division(1)', type=int, default=1)
-    parser.add_argument('-n_slice', help='dataset slice(0: num_frame, 1>=: this number)(16)', type=int, default=200)
+    parser.add_argument('-n_slice', help='dataset slice(0: num_frame, 1>=: this number)(16)', type=int, default=500)
     parser.add_argument('-epoch', help='number of epochs(100)', type=int, default=20)
     parser.add_argument('-resume_epoch', help='number of epoch to resume(-1)', type=int, default=-1)
     parser.add_argument('-resume_div', help='number of div to resume(-1)', type=int, default=-1)
-    parser.add_argument('-batch', help='batch size(8)', type=int, default=32)
+    parser.add_argument('-batch', help='batch size(8)', type=int, default=8)
     parser.add_argument('-lr', help='learning rate(1e-04)', type=float, default=1e-4)
     parser.add_argument('-dropout', help='dropout parameter(0.1)', type=float, default=0.1)
     parser.add_argument('-clip', help='clip parameter(1.0)', type=float, default=1.0)
     parser.add_argument('-seed', type=int, default=1234, help='seed value(1234)')
-    parser.add_argument('-cnn_channel', help='number of cnn channel(4)', type=int, default=1)
-    parser.add_argument('-cnn_kernel', help='number of cnn kernel(5)', type=int, default=1)
-    parser.add_argument('-hid_dim', help='size of hidden layer(256)', type=int, default=32)
-    parser.add_argument('-pf_dim', help='size of position-wise feed-forward layer(512)', type=int, default=32)
-    parser.add_argument('-enc_layer', help='number of layer of transformer(encoder)(3)', type=int, default=1)
-    parser.add_argument('-dec_layer', help='number of layer of transformer(decoder)(3)', type=int, default=1)
-    parser.add_argument('-enc_head', help='number of head of transformer(encoder)(4)', type=int, default=1)
-    parser.add_argument('-dec_head', help='number of head of transformer(decoder)(4)', type=int, default=1)
+    parser.add_argument('-cnn_channel', help='number of cnn channel(4)', type=int, default=4)
+    parser.add_argument('-cnn_kernel', help='number of cnn kernel(5)', type=int, default=5)
+    parser.add_argument('-hid_dim', help='size of hidden layer(256)', type=int, default=64)
+    parser.add_argument('-pf_dim', help='size of position-wise feed-forward layer(512)', type=int, default=128)
+    parser.add_argument('-enc_layer', help='number of layer of transformer(encoder)(3)', type=int, default=2)
+    parser.add_argument('-dec_layer', help='number of layer of transformer(decoder)(3)', type=int, default=2)
+    parser.add_argument('-enc_head', help='number of head of transformer(encoder)(4)', type=int, default=2)
+    parser.add_argument('-dec_head', help='number of head of transformer(decoder)(4)', type=int, default=2)
     parser.add_argument('-weight_A', help='loss weight for 1st output(1.0)', type=float, default=1.0)
     parser.add_argument('-weight_B', help='loss weight for 2nd output(1.0)', type=float, default=1.0)
-    parser.add_argument('-valid_test', help='validation with test data', action='store_true')
+    parser.add_argument('-valid_test', help='validation with test data', action='store_true', default=True)
     parser.add_argument('-v', help='verbose(print debug)', action='store_true')
     args = parser.parse_args()
 
@@ -296,6 +298,7 @@ if __name__ == '__main__':
         print(' resume     epoch: '+str(args.resume_epoch)+' div: '+str(args.resume_div))
         print(' checkpoint epoch: '+str(current_epoch)+' div: '+str(current_div))
 
+
     # (7) training
     print('(7) training')
     print(' epoch_start      : '+str(epoch_start))
@@ -349,7 +352,7 @@ if __name__ == '__main__':
                                          criterion_onset_A, criterion_offset_A, criterion_mpe_A, criterion_velocity_A,
                                          criterion_onset_B, criterion_offset_B, criterion_mpe_B, criterion_velocity_B,
                                          args.weight_A, args.weight_B,
-                                         device)
+                                         device, metrics=False)
                     epoch_loss_valid += retval[0]
                     num_data_valid += retval[1]
                     del dataset_valid, dataloader_valid
@@ -358,48 +361,12 @@ if __name__ == '__main__':
                                                                criterion_onset_A, criterion_offset_A, criterion_mpe_A, criterion_velocity_A,
                                                                criterion_onset_B, criterion_offset_B, criterion_mpe_B, criterion_velocity_B,
                                                                args.weight_A, args.weight_B,
-                                                               device)
+                                                               device, metrics=False)
             epoch_loss_valid /= num_data_valid
 
-            # (7-3) test
-            if args.valid_test is True:
-                print('(7-3) test')
-                if args.n_div_test > 1:
-                    epoch_loss_test = 0
-                    num_data_test = 0
-                    for div_test in range(args.n_div_test):
-                        dataset_test = dataset.MyDataset(d_dataset+'/feature/test_'+str(div_test).zfill(3)+'.pkl',
-                                                         d_dataset+'/label_onset/test_'+str(div_test).zfill(3)+'.pkl',
-                                                         d_dataset+'/label_offset/test_'+str(div_test).zfill(3)+'.pkl',
-                                                         d_dataset+'/label_mpe/test_'+str(div_test).zfill(3)+'.pkl',
-                                                         d_dataset+'/label_velocity/test_'+str(div_test).zfill(3)+'.pkl',
-                                                         d_dataset+'/idx/test_'+str(div_test).zfill(3)+'.pkl',
-                                                         config,
-                                                         args.n_slice)
-                        dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_size=args.batch, shuffle=False)
-                        print('## nstep test: '+str(len(dataloader_test)))
-                        retval = train.valid(model, dataloader_test,
-                                             criterion_onset_freq, criterion_offset_freq, criterion_mpe_freq, criterion_velocity_freq,
-                                             criterion_onset_time, criterion_offset_time, criterion_mpe_time, criterion_velocity_time,
-                                             args.weight_A, args.weight_B,
-                                             device)
-                        epoch_loss_test += retval[0]
-                        num_data_test += retval[1]
-                        del dataset_test, dataloader_test
-                else:
-                    epoch_loss_test, num_data_test = train.valid(model, dataloader_test,
-                                                                 criterion_onset_A, criterion_offset_A, criterion_mpe_A, criterion_velocity_A,
-                                                                 criterion_onset_B, criterion_offset_B, criterion_mpe_B, criterion_velocity_B,
-                                                                 args.weight_A, args.weight_B,
-                                                                 device)
-                epoch_loss_test /= num_data_test
-            else:
-                epoch_loss_test = 0.0
             print('[epoch: '+str(epoch).zfill(3)+' div: '+str(div).zfill(3)+']')
             print(' loss(train) :'+str(epoch_loss_train))
             print(' loss(valid) :'+str(epoch_loss_valid))
-            if args.valid_test is True:
-                print(' loss(test) :'+str(epoch_loss_test))
 
             # (7-4) save model
             with open(d_out+'/model_'+str(epoch).zfill(3)+'_'+str(div).zfill(3)+'.pkl', 'wb') as f:
@@ -409,7 +376,6 @@ if __name__ == '__main__':
                 'div': div,
                 'epoch_loss_train': epoch_loss_train,
                 'epoch_loss_valid': epoch_loss_valid,
-                'epoch_loss_test': epoch_loss_test,
                 'best_epoch': epoch,
                 'best_div': div,
                 'best_loss_valid': best_loss_valid,
@@ -438,7 +404,6 @@ if __name__ == '__main__':
                     'div': div,
                     'epoch_loss_train': epoch_loss_train,
                     'epoch_loss_valid': epoch_loss_valid,
-                    'epoch_loss_test': epoch_loss_test,
                     'best_epoch': epoch,
                     'best_div': div,
                     'best_loss_valid': best_loss_valid,
@@ -457,7 +422,6 @@ if __name__ == '__main__':
             # (7-5) save performance
             a_performance['loss_train'].append(epoch_loss_train)
             a_performance['loss_valid'].append(epoch_loss_valid)
-            a_performance['loss_test'].append(epoch_loss_test)
             a_performance['datetime'].append(datetime.datetime.now().isoformat())
             a_performance['current_epoch'] = epoch
             a_performance['current_div'] = div
@@ -473,6 +437,40 @@ if __name__ == '__main__':
             scheduler.step(epoch_loss_valid)
 
         div_start = 0
+
+    if args.valid_test is True:
+        print('(7-3) test')
+        if args.n_div_test > 1:
+            epoch_loss_test = 0
+            num_data_test = 0
+            for div_test in range(args.n_div_test):
+                dataset_test = dataset.MyDataset(d_dataset+'/feature/test_'+str(div_test).zfill(3)+'.pkl',
+                                                    d_dataset+'/label_onset/test_'+str(div_test).zfill(3)+'.pkl',
+                                                    d_dataset+'/label_offset/test_'+str(div_test).zfill(3)+'.pkl',
+                                                    d_dataset+'/label_mpe/test_'+str(div_test).zfill(3)+'.pkl',
+                                                    d_dataset+'/label_velocity/test_'+str(div_test).zfill(3)+'.pkl',
+                                                    d_dataset+'/idx/test_'+str(div_test).zfill(3)+'.pkl',
+                                                    config,
+                                                    args.n_slice)
+                dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_size=args.batch, shuffle=False)
+                print('## nstep test: '+str(len(dataloader_test)))
+                retval = train.valid(model, dataloader_test,
+                                        criterion_onset_freq, criterion_offset_freq, criterion_mpe_freq, criterion_velocity_freq,
+                                        criterion_onset_time, criterion_offset_time, criterion_mpe_time, criterion_velocity_time,
+                                        args.weight_A, args.weight_B,
+                                        device, metrics=True)
+                epoch_loss_test += retval[0]
+                num_data_test += retval[1]
+                del dataset_test, dataloader_test
+        else:
+            epoch_loss_test, num_data_test = train.valid(model, dataloader_test,
+                                                            criterion_onset_A, criterion_offset_A, criterion_mpe_A, criterion_velocity_A,
+                                                            criterion_onset_B, criterion_offset_B, criterion_mpe_B, criterion_velocity_B,
+                                                            args.weight_A, args.weight_B,
+                                                            device, metrics=True)
+        epoch_loss_test /= num_data_test
+    else:
+        epoch_loss_test = 0.0
 
     print('** done **')
     t1 = time.time()
